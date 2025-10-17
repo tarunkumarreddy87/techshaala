@@ -29,13 +29,15 @@ export default function StudentDashboard() {
   const enrolledCoursesCount = enrollments?.length || 0;
   const pendingAssignments = assignments?.filter(a => !a.submission).length || 0;
   const completedAssignments = assignments?.filter(a => a.submission).length || 0;
-  const averageGrade = assignments
-    ?.filter(a => a.submission?.grade)
-    .reduce((acc, a) => {
-      const score = a.submission?.grade?.score || 0;
-      const max = a.maxScore;
-      return acc + (score / max) * 100;
-    }, 0) / (assignments?.filter(a => a.submission?.grade).length || 1);
+  const averageGrade = assignments && assignments.length > 0
+    ? assignments
+      .filter(a => a.submission?.grade)
+      .reduce((acc, a) => {
+        const score = a.submission?.grade?.score || 0;
+        const max = a.maxScore;
+        return acc + (score / max) * 100;
+      }, 0) / (assignments.filter(a => a.submission?.grade).length || 1)
+    : 0;
 
   return (
     <div className="p-6 space-y-6">

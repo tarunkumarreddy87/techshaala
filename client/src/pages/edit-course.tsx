@@ -7,16 +7,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useAuth } from "@/lib/auth-context";
-import { useLocation } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { useEffect } from "react";
 
-export default function CreateCourse() {
+export default function EditCourse() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const [, params] = useRoute("/teacher/course/:id/edit");
   const [, setLocation] = useLocation();
+  const courseId = params?.id;
+
+  const { data: course, isLoading: courseLoading } = useQuery<InsertCourse>({
+    queryKey: [`/api/courses/${courseId}`],
+    enabled: !!courseId,
+  });
 
   const form = useForm<InsertCourse>({
     resolver: zodResolver(insertCourseSchema),
@@ -24,37 +30,72 @@ export default function CreateCourse() {
       title: "",
       description: "",
       duration: "",
-      teacherId: user?.id || "",
       youtubeLink: "",
       chapters: "",
     },
   });
 
-  const createCourseMutation = useMutation({
+  // Set form values when course data is loaded
+  useEffect(() => {
+    if (course && !form.formState.isDirty) {
+      form.reset({
+        title: course.title,
+        description: course.description,
+        duration: course.duration,
+        youtubeLink: course.youtubeLink || "",
+        chapters: course.chapters || "",
+      });
+    }
+  }, [course, form, form.formState.isDirty]);
+
+  const updateCourseMutation = useMutation({
     mutationFn: async (data: InsertCourse) => {
-      return await apiRequest("POST", "/api/courses", data);
+      return await apiRequest("PUT", `/api/courses/${courseId}`, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/courses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/courses/my-courses"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/courses/${courseId}`] });
       toast({
-        title: "Course created!",
-        description: "Your course has been created successfully",
+        title: "Course updated!",
+        description: "Your course has been updated successfully",
       });
-      setLocation("/teacher/dashboard");
+      setLocation(`/teacher/course/${courseId}`);
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create course",
+        title: "Failed to update course",
         description: error.message,
         variant: "destructive",
       });
     },
   });
 
-  const onSubmit = (data: Omit<InsertCourse, 'teacherId'>) => {
-    createCourseMutation.mutate(data as InsertCourse);
+  const onSubmit = (data: InsertCourse) => {
+    updateCourseMutation.mutate(data);
   };
+
+  if (courseLoading) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLocation(`/teacher/course/${courseId}`)}
+            className="mb-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Course
+          </Button>
+        </div>
+        <div className="space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3 animate-pulse"></div>
+          <div className="h-64 bg-gray-200 rounded animate-pulse"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -62,22 +103,21 @@ export default function CreateCourse() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setLocation("/teacher/dashboard")}
+          onClick={() => setLocation(`/teacher/course/${courseId}`)}
           className="mb-4"
-          data-testid="button-back"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
+          Back to Course
         </Button>
-        <h1 className="text-3xl font-bold tracking-tight">Create New Course</h1>
-        <p className="text-muted-foreground mt-1">Fill in the details to create a new course</p>
+        <h1 className="text-3xl font-bold tracking-tight">Edit Course</h1>
+        <p className="text-muted-foreground mt-1">Update the details of your course</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Course Information</CardTitle>
           <CardDescription>
-            Provide the basic details about your course
+            Update the details about your course
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -92,7 +132,6 @@ export default function CreateCourse() {
                     <FormControl>
                       <Input
                         placeholder="Introduction to Web Development"
-                        data-testid="input-title"
                         {...field}
                       />
                     </FormControl>
@@ -114,7 +153,6 @@ export default function CreateCourse() {
                       <Textarea
                         placeholder="This course covers the fundamentals of web development including HTML, CSS, and JavaScript..."
                         className="min-h-32"
-                        data-testid="input-description"
                         {...field}
                       />
                     </FormControl>
@@ -135,7 +173,6 @@ export default function CreateCourse() {
                     <FormControl>
                       <Input
                         placeholder="8 weeks"
-                        data-testid="input-duration"
                         {...field}
                       />
                     </FormControl>
@@ -156,7 +193,6 @@ export default function CreateCourse() {
                     <FormControl>
                       <Input
                         placeholder="https://www.youtube.com/watch?v=..."
-                        data-testid="input-youtube-link"
                         {...field}
                         value={field.value || ''}
                       />
@@ -179,7 +215,6 @@ export default function CreateCourse() {
                       <Textarea
                         placeholder='[{"id": 1, "title": "Chapter 1", "youtubeId": "videoId1", "duration": "10:30"}, {"id": 2, "title": "Chapter 2", "youtubeId": "videoId2", "duration": "15:45"}]'
                         className="min-h-32"
-                        data-testid="input-chapters"
                         {...field}
                         value={field.value || ''}
                       />
@@ -196,20 +231,18 @@ export default function CreateCourse() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setLocation("/teacher/dashboard")}
+                  onClick={() => setLocation(`/teacher/course/${courseId}`)}
                   className="flex-1"
-                  data-testid="button-cancel"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
                   className="flex-1"
-                  disabled={createCourseMutation.isPending}
-                  data-testid="button-submit"
+                  disabled={updateCourseMutation.isPending}
                 >
-                  {createCourseMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Course
+                  {updateCourseMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Update Course
                 </Button>
               </div>
             </form>

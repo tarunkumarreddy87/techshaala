@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AssignmentCard } from "@/components/assignment-card";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, BookOpen, Clock, User, FileText } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, User, FileText, Play } from "lucide-react";
 import type { CourseWithTeacher, Assignment, SubmissionWithDetails } from "@shared/schema";
 
 export default function StudentCourseDetail() {
@@ -22,9 +22,11 @@ export default function StudentCourseDetail() {
     enabled: !!courseId,
   });
 
-  const { data: assignments, isLoading: assignmentsLoading } = useQuery<Assignment[]>({
-    queryKey: [`/api/courses/${courseId}/assignments`],
-    enabled: !!courseId,
+  const { data: assignments, isLoading: assignmentsLoading } = useQuery<(Assignment & {
+    submission?: SubmissionWithDetails;
+  })[]>({
+    queryKey: [`/api/courses/${courseId}/assignments-with-submissions`],
+    enabled: !!courseId && !!user?.id,
   });
 
   const getInitials = (name: string) => {
@@ -111,10 +113,15 @@ export default function StudentCourseDetail() {
           <TabsTrigger value="assignments" data-testid="tab-assignments">
             Assignments
           </TabsTrigger>
+          <TabsTrigger value="learning" data-testid="tab-learning">
+            Learning
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="assignments" className="space-y-4">
-          <h2 className="text-2xl font-semibold">Course Assignments</h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-semibold">Course Assignments</h2>
+          </div>
           {assignmentsLoading ? (
             <div className="space-y-4">
               {[1, 2].map((i) => (
@@ -126,7 +133,10 @@ export default function StudentCourseDetail() {
               {assignments.map((assignment) => (
                 <AssignmentCard
                   key={assignment.id}
-                  assignment={assignment}
+                  assignment={{
+                    ...assignment,
+                    course: course
+                  }}
                   submission={assignment.submission}
                   actionButton={
                     !assignment.submission ? (
@@ -137,7 +147,7 @@ export default function StudentCourseDetail() {
                       >
                         Submit Assignment
                       </Button>
-                    ) : assignment.submission.grade ? (
+                    ) : assignment.submission?.grade ? (
                       <Button
                         variant="outline"
                         className="w-full"
@@ -167,6 +177,37 @@ export default function StudentCourseDetail() {
               description="Your teacher hasn't created any assignments for this course"
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="learning" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-semibold">Course Learning Materials</h2>
+          </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Play className="h-5 w-5" />
+                Video Learning
+              </CardTitle>
+              <CardDescription>
+                Access course content through video lectures and tutorials
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4">
+                <p className="text-muted-foreground">
+                  This course includes video lectures organized by chapters. Click below to start learning.
+                </p>
+                <Button 
+                  className="w-full md:w-1/2"
+                  onClick={() => setLocation(`/student/learning/${courseId}`)}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Learning
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

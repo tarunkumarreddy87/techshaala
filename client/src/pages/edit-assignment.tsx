@@ -1,49 +1,67 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertAssignmentSchema, type InsertAssignment } from "@shared/schema";
+import { insertAssignmentSchema, updateAssignmentSchema, type InsertAssignment } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useRoute, useLocation } from "wouter";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { useEffect } from "react";
 
-export default function CreateAssignment() {
+export default function EditAssignment() {
   const { toast } = useToast();
-  const [, params] = useRoute("/teacher/course/:courseId/create-assignment");
+  const [, params] = useRoute("/teacher/assignment/:id/edit");
   const [, setLocation] = useLocation();
-  const courseId = params?.courseId;
+  const assignmentId = params?.id;
+
+  const { data: assignment, isLoading: assignmentLoading } = useQuery<InsertAssignment>({
+    queryKey: [`/api/assignments/${assignmentId}`],
+    enabled: !!assignmentId,
+  });
 
   const form = useForm<InsertAssignment>({
-    resolver: zodResolver(insertAssignmentSchema),
+    resolver: zodResolver(updateAssignmentSchema),
     defaultValues: {
       title: "",
       description: "",
       dueDate: "",
       maxScore: 100,
-      courseId: courseId || "",
     },
   });
 
-  const createAssignmentMutation = useMutation({
+  // Set form values when assignment data is loaded
+  useEffect(() => {
+    if (assignment && !form.formState.isDirty) {
+      form.reset({
+        title: assignment.title,
+        description: assignment.description,
+        dueDate: assignment.dueDate instanceof Date ? assignment.dueDate.toISOString().slice(0, 16) : assignment.dueDate,
+        maxScore: assignment.maxScore,
+      });
+    }
+  }, [assignment, form, form.formState.isDirty]);
+
+  const updateAssignmentMutation = useMutation({
     mutationFn: async (data: InsertAssignment) => {
-      return await apiRequest("POST", "/api/assignments", data);
+      return await apiRequest("PUT", `/api/assignments/${assignmentId}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/courses/${courseId}/assignments`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/assignments/${assignmentId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/assignments/${assignmentId}/submissions`] });
       toast({
-        title: "Assignment created!",
-        description: "Students can now submit their work",
+        title: "Assignment updated!",
+        description: "Your assignment has been updated successfully",
       });
-      setLocation(`/teacher/course/${courseId}`);
+      setLocation(`/teacher/assignment/${assignmentId}`);
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create assignment",
+        title: "Failed to update assignment",
         description: error.message,
         variant: "destructive",
       });
@@ -51,8 +69,30 @@ export default function CreateAssignment() {
   });
 
   const onSubmit = (data: InsertAssignment) => {
-    createAssignmentMutation.mutate({ ...data, courseId: courseId || "" });
+    updateAssignmentMutation.mutate(data);
   };
+
+  if (assignmentLoading) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLocation(`/teacher/assignment/${assignmentId}`)}
+            className="mb-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Assignment
+          </Button>
+        </div>
+        <div className="space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3 animate-pulse"></div>
+          <div className="h-64 bg-gray-200 rounded animate-pulse"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
@@ -60,22 +100,21 @@ export default function CreateAssignment() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setLocation(`/teacher/course/${courseId}`)}
+          onClick={() => setLocation(`/teacher/assignment/${assignmentId}`)}
           className="mb-4"
-          data-testid="button-back"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Course
+          Back to Assignment
         </Button>
-        <h1 className="text-3xl font-bold tracking-tight">Create Assignment</h1>
-        <p className="text-muted-foreground mt-1">Create a new assignment for your students</p>
+        <h1 className="text-3xl font-bold tracking-tight">Edit Assignment</h1>
+        <p className="text-muted-foreground mt-1">Update the details of your assignment</p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Assignment Details</CardTitle>
           <CardDescription>
-            Provide the details for the assignment
+            Update the details for the assignment
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -90,7 +129,6 @@ export default function CreateAssignment() {
                     <FormControl>
                       <Input
                         placeholder="Week 1: HTML Basics"
-                        data-testid="input-title"
                         {...field}
                       />
                     </FormControl>
@@ -109,7 +147,6 @@ export default function CreateAssignment() {
                       <Textarea
                         placeholder="Create a simple HTML page with proper structure..."
                         className="min-h-32"
-                        data-testid="input-description"
                         {...field}
                       />
                     </FormControl>
@@ -131,7 +168,6 @@ export default function CreateAssignment() {
                       <FormControl>
                         <Input
                           type="datetime-local"
-                          data-testid="input-due-date"
                           {...field}
                           value={field.value instanceof Date ? field.value.toISOString().slice(0, 16) : field.value || ''}
                         />
@@ -151,7 +187,6 @@ export default function CreateAssignment() {
                         <Input
                           type="number"
                           min="1"
-                          data-testid="input-max-score"
                           {...field}
                           onChange={(e) => field.onChange(parseInt(e.target.value))}
                         />
@@ -166,20 +201,18 @@ export default function CreateAssignment() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => setLocation(`/teacher/course/${courseId}`)}
+                  onClick={() => setLocation(`/teacher/assignment/${assignmentId}`)}
                   className="flex-1"
-                  data-testid="button-cancel"
                 >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
                   className="flex-1"
-                  disabled={createAssignmentMutation.isPending}
-                  data-testid="button-submit"
+                  disabled={updateAssignmentMutation.isPending}
                 >
-                  {createAssignmentMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Assignment
+                  {updateAssignmentMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Update Assignment
                 </Button>
               </div>
             </form>

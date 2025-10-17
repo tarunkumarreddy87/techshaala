@@ -10,7 +10,7 @@ interface AssignmentCardProps {
   actionButton?: React.ReactNode;
   showCourse?: boolean;
   submission?: {
-    submittedAt: Date;
+    submittedAt: Date | null;
     grade?: {
       score: number;
     };

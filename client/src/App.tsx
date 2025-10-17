@@ -9,6 +9,8 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ProtectedRoute } from "@/components/protected-route";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useEffect } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -19,10 +21,13 @@ import StudentCourseDetail from "@/pages/student-course-detail";
 import TeacherCourseDetail from "@/pages/teacher-course-detail";
 import CreateCourse from "@/pages/create-course";
 import CreateAssignment from "@/pages/create-assignment";
+import EditCourse from "@/pages/edit-course";
+import EditAssignment from "@/pages/edit-assignment";
 import SubmitAssignment from "@/pages/submit-assignment";
 import TeacherAssignmentSubmissions from "@/pages/teacher-assignment-submissions";
 import StudentGrades from "@/pages/student-grades";
 import StudentAssignments from "@/pages/student-assignments";
+import LearningPage from "@/pages/learning-page";
 import NotFound from "@/pages/not-found";
 
 function HomeRedirect() {
@@ -61,6 +66,11 @@ function Router() {
           <StudentCourseDetail />
         </ProtectedRoute>
       </Route>
+      <Route path="/student/learning/:id">
+        <ProtectedRoute requiredRole="student">
+          <LearningPage />
+        </ProtectedRoute>
+      </Route>
       <Route path="/student/assignment/:id">
         <ProtectedRoute requiredRole="student">
           <SubmitAssignment />
@@ -93,6 +103,11 @@ function Router() {
           <TeacherCourseDetail />
         </ProtectedRoute>
       </Route>
+      <Route path="/teacher/course/:id/edit">
+        <ProtectedRoute requiredRole="teacher">
+          <EditCourse />
+        </ProtectedRoute>
+      </Route>
       <Route path="/teacher/create-course">
         <ProtectedRoute requiredRole="teacher">
           <CreateCourse />
@@ -108,6 +123,11 @@ function Router() {
           <TeacherAssignmentSubmissions />
         </ProtectedRoute>
       </Route>
+      <Route path="/teacher/assignment/:id/edit">
+        <ProtectedRoute requiredRole="teacher">
+          <EditAssignment />
+        </ProtectedRoute>
+      </Route>
       <Route path="/teacher/assignments">
         <ProtectedRoute requiredRole="teacher">
           <TeacherDashboard />
@@ -120,10 +140,29 @@ function Router() {
 }
 
 function AppContent() {
-  const { user } = useAuth();
+  const { user, isLoading, refreshAuth } = useAuth();
   const isAuthPage = window.location.pathname === "/login" || window.location.pathname === "/register";
 
-  if (isAuthPage || !user) {
+  // Refresh auth state on app load
+  useEffect(() => {
+    if (!isAuthPage) {
+      refreshAuth();
+    }
+  }, [isAuthPage, refreshAuth]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Skeleton className="h-32 w-32" />
+      </div>
+    );
+  }
+
+  if (isAuthPage) {
+    return <Router />;
+  }
+
+  if (!user) {
     return <Router />;
   }
 

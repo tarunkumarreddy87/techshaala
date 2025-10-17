@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
-import { ArrowLeft, FileText, Calendar, Award, Loader2, CheckCircle } from "lucide-react";
+import { ArrowLeft, FileText, Calendar, Award, Loader2, CheckCircle, Upload, File } from "lucide-react";
 import { format } from "date-fns";
 import type { AssignmentWithCourse, SubmissionWithDetails } from "@shared/schema";
 
@@ -41,7 +41,21 @@ export default function SubmitAssignment() {
 
   const submitMutation = useMutation({
     mutationFn: async (data: Omit<InsertSubmission, 'studentId'>) => {
-      return await apiRequest("POST", "/api/submissions", data);
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('content', data.content);
+      formData.append('assignmentId', assignmentId || '');
+      formData.append('studentId', user?.id || '');
+      
+      // If there's a file, append it
+      const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+      if (fileInput?.files?.[0]) {
+        formData.append('file', fileInput.files[0]);
+      }
+
+      return await apiRequest("POST", "/api/submissions", formData, {
+        // Remove Content-Type header to let browser set it automatically with boundary
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/assignments/${assignmentId}`] });
@@ -66,6 +80,58 @@ export default function SubmitAssignment() {
       content: data.content,
       assignmentId: assignmentId || "",
     });
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (file.type !== 'application/pdf') {
+        toast({
+          title: "Invalid file type",
+          description: "Only PDF files are allowed",
+          variant: "destructive",
+        });
+        e.target.value = ''; // Clear the input
+        return;
+      }
+      
+      // Validate file size (50MB limit)
+      if (file.size > 50 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "File size must be less than 50MB",
+          variant: "destructive",
+        });
+        e.target.value = ''; // Clear the input
+        return;
+      }
+    }
+  };
+
+  const handleDownloadFile = async (submissionId: string) => {
+    try {
+      const response = await fetch(`/api/submissions/${submissionId}/file`);
+      if (!response.ok) {
+        throw new Error('Failed to download file');
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = assignment?.submission?.fileName || 'submission.pdf';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Failed to download the submitted file",
+        variant: "destructive",
+      });
+    }
   };
 
   if (isLoading) {
@@ -188,6 +254,19 @@ export default function SubmitAssignment() {
               <Card className="bg-muted/50">
                 <CardContent className="p-4">
                   <p className="whitespace-pre-wrap">{assignment.submission?.content}</p>
+                  {assignment.submission?.fileName && (
+                    <div className="mt-4 flex items-center gap-2">
+                      <File className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm">{assignment.submission.fileName}</span>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleDownloadFile(assignment.submission!.id)}
+                      >
+                        Download
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -198,13 +277,26 @@ export default function SubmitAssignment() {
           <CardHeader>
             <CardTitle>Your Submission</CardTitle>
             <CardDescription>
-              Submitted on {format(new Date(assignment.submission!.submittedAt), "MMM d, yyyy 'at' h:mm a")}
+              Submitted on {assignment.submission?.submittedAt ? format(new Date(assignment.submission.submittedAt), "MMM d, yyyy 'at' h:mm a") : "Unknown date"}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Card className="bg-muted/50">
               <CardContent className="p-4">
                 <p className="whitespace-pre-wrap">{assignment.submission?.content}</p>
+                {assignment.submission?.fileName && (
+                  <div className="mt-4 flex items-center gap-2">
+                    <File className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">{assignment.submission.fileName}</span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => handleDownloadFile(assignment.submission!.id)}
+                    >
+                      Download
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
             <p className="text-sm text-muted-foreground mt-4">
@@ -217,7 +309,7 @@ export default function SubmitAssignment() {
           <CardHeader>
             <CardTitle>Submit Your Work</CardTitle>
             <CardDescription>
-              Provide your answer or solution below
+              Provide your answer or solution below and optionally upload a PDF file
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -241,6 +333,37 @@ export default function SubmitAssignment() {
                     </FormItem>
                   )}
                 />
+
+                <div className="space-y-2">
+                  <FormLabel>Upload PDF File (Optional)</FormLabel>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="file-upload"
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('file-upload')?.click()}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Choose PDF File
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {(() => {
+                        const fileInput = document.getElementById('file-upload') as HTMLInputElement;
+                        const file = fileInput?.files?.[0];
+                        return file ? file.name : 'No file chosen';
+                      })()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Only PDF files up to 50MB are allowed
+                  </p>
+                </div>
 
                 <div className="flex gap-4">
                   <Button

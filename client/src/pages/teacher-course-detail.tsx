@@ -7,8 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AssignmentCard } from "@/components/assignment-card";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, BookOpen, Clock, Users, FileText, Plus } from "lucide-react";
-import type { CourseWithTeacher, Assignment, User } from "@shared/schema";
+import { ArrowLeft, BookOpen, Clock, Users, FileText, Plus, Edit, Play } from "lucide-react";
+import type { CourseWithTeacher, Assignment, User, Chapter } from "@shared/schema";
 
 export default function TeacherCourseDetail() {
   const [, params] = useRoute("/teacher/course/:id");
@@ -39,6 +39,22 @@ export default function TeacherCourseDetail() {
       .slice(0, 2);
   };
 
+  const extractYouTubeId = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  const parseChapters = (chaptersStr: string | null | undefined): Chapter[] => {
+    if (!chaptersStr) return [];
+    try {
+      return JSON.parse(chaptersStr);
+    } catch (e) {
+      console.error("Error parsing chapters:", e);
+      return [];
+    }
+  };
+
   if (courseLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -64,6 +80,9 @@ export default function TeacherCourseDetail() {
     );
   }
 
+  const chapters = parseChapters(course.chapters);
+  const youtubeId = course.youtubeLink ? extractYouTubeId(course.youtubeLink) : null;
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -77,11 +96,13 @@ export default function TeacherCourseDetail() {
           Back to Dashboard
         </Button>
         <Button
-          onClick={() => setLocation(`/teacher/course/${courseId}/create-assignment`)}
-          data-testid="button-create-assignment"
+          onClick={() => setLocation(`/teacher/course/${courseId}/edit`)}
+          variant="outline"
+          className="mr-2"
+          data-testid="button-edit-course"
         >
-          <Plus className="h-4 w-4 mr-2" />
-          Create Assignment
+          <Edit className="h-4 w-4 mr-2" />
+          Edit Course
         </Button>
       </div>
 
@@ -98,7 +119,7 @@ export default function TeacherCourseDetail() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-6 text-sm">
+          <div className="flex items-center gap-6 text-sm mb-4">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>{course.duration}</span>
@@ -108,6 +129,53 @@ export default function TeacherCourseDetail() {
               <span>{students?.length || 0} students enrolled</span>
             </div>
           </div>
+
+          {/* YouTube Video Section */}
+          {youtubeId && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-2">Course Video</h3>
+              <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  src={`https://www.youtube.com/embed/${youtubeId}`}
+                  title="Course Video"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                ></iframe>
+              </div>
+            </div>
+          )}
+
+          {/* Chapters Section */}
+          {chapters.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-2">Course Chapters</h3>
+              <div className="space-y-2">
+                {chapters.map((chapter) => (
+                  <div key={chapter.id} className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <Play className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium">{chapter.title}</p>
+                        <p className="text-sm text-muted-foreground">{chapter.duration}</p>
+                      </div>
+                    </div>
+                    {chapter.youtubeId && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`https://www.youtube.com/watch?v=${chapter.youtubeId}`, '_blank')}
+                      >
+                        Watch
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -145,14 +213,25 @@ export default function TeacherCourseDetail() {
                   key={assignment.id}
                   assignment={{ ...assignment, course }}
                   actionButton={
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => setLocation(`/teacher/assignment/${assignment.id}`)}
-                      data-testid={`button-view-submissions-${assignment.id}`}
-                    >
-                      View Submissions
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => setLocation(`/teacher/assignment/${assignment.id}/edit`)}
+                        data-testid={`button-edit-assignment-${assignment.id}`}
+                      >
+                        <Edit className="h-4 w-4 mr-2" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => setLocation(`/teacher/assignment/${assignment.id}`)}
+                        data-testid={`button-view-submissions-${assignment.id}`}
+                      >
+                        View Submissions
+                      </Button>
+                    </div>
                   }
                 />
               ))}

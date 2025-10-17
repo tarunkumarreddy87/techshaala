@@ -1,11 +1,26 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
+import fileUpload from "express-fileupload";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { storage } from "./storage";
+import dotenv from "dotenv";
+import path from "path";
+import { createServer } from "http";
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(import.meta.dirname, '..', '.env') });
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// File upload middleware
+app.use(fileUpload({
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  abortOnLimit: true,
+  responseOnLimit: "File size limit has been reached"
+}));
 
 // Session middleware
 app.use(
@@ -51,7 +66,18 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
+// Connect to MongoDB and start server
+async function startServer() {
+  try {
+    await storage.connect();
+    log("MongoDB connected successfully");
+  } catch (error) {
+    log(`Failed to connect to MongoDB: ${error}`);
+    log("Falling back to in-memory storage for development");
+    // The application will continue to use the in-memory storage
+    // In a production environment, you would want to exit here
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -75,12 +101,28 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
+  const port = parseInt(process.env.PORT || '3001', 10);
+  
+  // Check if port is already in use
+  const httpServer = createServer(app);
+  
+  httpServer.on('error', (e: any) => {
+    if (e.code === 'EADDRINUSE') {
+      console.log(`Port ${port} is already in use. Trying ${port + 1}...`);
+      setTimeout(() => {
+        httpServer.listen(port + 1);
+      }, 1000);
+    }
+  });
+  
+  httpServer.listen(port, () => {
     log(`serving on port ${port}`);
   });
-})();
+  
+  return httpServer;
+}
+
+startServer().catch(error => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
+});

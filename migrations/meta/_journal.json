@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1760718040891,
+      "tag": "0000_minor_dragon_man",
+      "breakpoints": true
+    }
+  ]
+}

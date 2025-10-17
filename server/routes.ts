@@ -7,15 +7,21 @@ import {
   insertUserSchema,
   loginSchema,
   insertCourseSchema,
+  updateCourseSchema,
   insertEnrollmentSchema,
   insertAssignmentSchema,
+  updateAssignmentSchema,
   insertSubmissionSchema,
+  insertSubmissionWithFileSchema,
   insertGradeSchema,
+  updateGradeSchema,
   type User,
 } from "@shared/schema";
+import path from "path";
+import fs from "fs";
 
 // Helper function to handle async route errors
-const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Function) => {
+const asyncHandler = (fn: (req: Request, res: Response, next: any) => Promise<any>) => (req: Request, res: Response, next: any) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
@@ -23,6 +29,29 @@ const asyncHandler = (fn: Function) => (req: Request, res: Response, next: Funct
 const sanitizeUser = (user: User): Omit<User, "password"> => {
   const { password, ...safeUser } = user;
   return safeUser;
+};
+
+// Helper function to save uploaded file
+const saveUploadedFile = (file: any, uploadDir: string): { fileName: string, filePath: string, fileType: string, fileSize: number } => {
+  // Create upload directory if it doesn't exist
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  // Generate unique filename
+  const fileExtension = path.extname(file.name);
+  const fileName = `${Date.now()}-${Math.round(Math.random() * 1000000)}${fileExtension}`;
+  const filePath = path.join(uploadDir, fileName);
+
+  // Save file
+  file.mv(filePath);
+
+  return {
+    fileName,
+    filePath,
+    fileType: file.mimetype,
+    fileSize: file.size
+  };
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -55,7 +84,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Set session
     req.session.userId = user.id;
-    req.session.userRole = user.role;
+    req.session.userRole = role as "student" | "teacher";
 
     res.status(201).json(sanitizeUser(user));
   }));
@@ -83,7 +112,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Set session
     req.session.userId = user.id;
-    req.session.userRole = user.role;
+    req.session.userRole = user.role as "student" | "teacher";
 
     res.json(sanitizeUser(user));
   }));
@@ -96,6 +125,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.clearCookie("connect.sid");
       res.json({ message: "Logged out successfully" });
     });
+  }));
+
+  // Add endpoint to get current user
+  app.get("/api/auth/me", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const user = await storage.getUser(req.session.userId!);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    res.json(sanitizeUser(user));
   }));
 
   // Course Routes
@@ -133,6 +171,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(assignments);
   }));
 
+  // Add new endpoint to get assignments with submission data for a specific course
+  app.get("/api/courses/:id/assignments-with-submissions", requireAuth, requireRole("student"), asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const studentId = req.session.userId!;
+    
+    // Check if student is enrolled in the course
+    const isEnrolled = await storage.isStudentEnrolled(studentId, id);
+    if (!isEnrolled) {
+      return res.status(403).json({ error: "You must be enrolled in this course to view assignments" });
+    }
+    
+    const assignments = await storage.getAssignmentsByCourse(id);
+    
+    // Add submission info for each assignment
+    const assignmentsWithSubmissions = await Promise.all(
+      assignments.map(async (assignment) => {
+        const submission = await storage.getSubmissionByAssignmentAndStudent(
+          assignment.id,
+          studentId
+        );
+        return { ...assignment, submission: submission || undefined };
+      })
+    );
+
+    res.json(assignmentsWithSubmissions);
+  }));
+
   app.post("/api/courses", requireAuth, requireRole("teacher"), asyncHandler(async (req: Request, res: Response) => {
     const parsed = insertCourseSchema.safeParse({
       ...req.body,
@@ -145,6 +210,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const course = await storage.createCourse(parsed.data);
     res.status(201).json(course);
+  }));
+
+  // Add PUT route for updating courses
+  app.put("/api/courses/:id", requireAuth, requireRole("teacher"), asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    // Check if course exists and belongs to teacher
+    const course = await storage.getCourse(id);
+    if (!course) {
+      return res.status(404).json({ error: "Course not found" });
+    }
+
+    if (course.teacherId !== req.session.userId) {
+      return res.status(403).json({ error: "You can only edit your own courses" });
+    }
+
+    const parsed = updateCourseSchema.safeParse(req.body);
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message });
+    }
+
+    const updatedCourse = await storage.updateCourse(id, parsed.data);
+    res.json(updatedCourse);
   }));
 
   // Enrollment Routes
@@ -253,18 +342,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(assignment);
   }));
 
-  // Submission Routes
-  app.post("/api/submissions", requireAuth, requireRole("student"), asyncHandler(async (req: Request, res: Response) => {
-    const parsed = insertSubmissionSchema.safeParse({
-      ...req.body,
-      studentId: req.session.userId,
-    });
+  // Add PUT route for updating assignments
+  app.put("/api/assignments/:id", requireAuth, requireRole("teacher"), asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    // Check if assignment exists
+    const assignment = await storage.getAssignment(id);
+    if (!assignment) {
+      return res.status(404).json({ error: "Assignment not found" });
+    }
+
+    // Check if teacher owns the course
+    const course = await storage.getCourse(assignment.courseId);
+    if (!course || course.teacherId !== req.session.userId) {
+      return res.status(403).json({ error: "You can only edit assignments for your own courses" });
+    }
+
+    const parsed = updateAssignmentSchema.safeParse(req.body);
     
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.errors[0].message });
     }
 
-    const { assignmentId, studentId, content } = parsed.data;
+    const updatedAssignment = await storage.updateAssignment(id, parsed.data);
+    res.json(updatedAssignment);
+  }));
+
+  // Submission Routes - Updated to handle file uploads
+  app.post("/api/submissions", requireAuth, requireRole("student"), asyncHandler(async (req: Request, res: Response) => {
+    // Check if this is a file upload
+    let submissionData: any = {
+      ...req.body,
+      studentId: req.session.userId,
+    };
+
+    // Handle file upload if present
+    if (req.files && req.files.file) {
+      const fileArray = Array.isArray(req.files.file) ? req.files.file : [req.files.file];
+      const file = fileArray[0];
+      
+      // Validate file type (only allow PDF)
+      if (file.mimetype !== 'application/pdf') {
+        return res.status(400).json({ error: "Only PDF files are allowed" });
+      }
+      
+      // Save file
+      try {
+        const uploadDir = path.join(process.cwd(), 'uploads');
+        const fileData = await saveUploadedFile(file, uploadDir);
+        
+        // Add file data to submission
+        submissionData = {
+          ...submissionData,
+          fileName: fileData.fileName,
+          filePath: fileData.filePath,
+          fileType: fileData.fileType,
+          fileSize: fileData.fileSize
+        };
+      } catch (error) {
+        console.error('File upload error:', error);
+        return res.status(500).json({ error: "Failed to upload file" });
+      }
+    }
+
+    // Validate submission data
+    const parsed = insertSubmissionWithFileSchema.safeParse(submissionData);
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message });
+    }
+
+    const { assignmentId, content, fileName, filePath, fileType, fileSize } = parsed.data;
+    const studentId = req.session.userId!;
 
     // Check if assignment exists
     const assignment = await storage.getAssignment(assignmentId);
@@ -287,8 +436,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(403).json({ error: "Must be enrolled in course to submit assignment" });
     }
 
-    const submission = await storage.createSubmission({ assignmentId, studentId, content });
+    // Create submission with file data if present
+    const submission = await storage.createSubmission({ 
+      assignmentId, 
+      studentId, 
+      content,
+      ...(fileName && { fileName }),
+      ...(filePath && { filePath }),
+      ...(fileType && { fileType }),
+      ...(fileSize && { fileSize })
+    });
+    
     res.status(201).json(submission);
+  }));
+
+  // Route to download submitted files
+  app.get("/api/submissions/:id/file", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    // Get submission
+    const submission = await storage.getSubmission(id);
+    if (!submission) {
+      return res.status(404).json({ error: "Submission not found" });
+    }
+    
+    // Check permissions
+    // Teachers can access any submission in their courses
+    // Students can only access their own submissions
+    if (req.session.userRole === "student" && submission.studentId !== req.session.userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    
+    // For students, verify they're enrolled in the course
+    if (req.session.userRole === "student") {
+      const assignment = await storage.getAssignment(submission.assignmentId);
+      if (!assignment) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      
+      const isEnrolled = await storage.isStudentEnrolled(req.session.userId!, assignment.courseId);
+      if (!isEnrolled) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+    
+    // For teachers, verify they own the course
+    if (req.session.userRole === "teacher") {
+      const assignment = await storage.getAssignment(submission.assignmentId);
+      if (!assignment) {
+        return res.status(404).json({ error: "Assignment not found" });
+      }
+      
+      const course = await storage.getCourse(assignment.courseId);
+      if (!course || course.teacherId !== req.session.userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+    
+    // Check if file exists
+    if (!submission.filePath || !fs.existsSync(submission.filePath)) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    
+    // Set headers for file download
+    res.setHeader('Content-Disposition', `attachment; filename="${submission.fileName}"`);
+    res.setHeader('Content-Type', submission.fileType || 'application/octet-stream');
+    
+    // Send file
+    res.sendFile(submission.filePath);
   }));
 
   // Grade Routes
@@ -333,6 +548,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(201).json(grade);
   }));
 
+  // Add PUT route for updating grades
+  app.put("/api/grades/:id", requireAuth, requireRole("teacher"), asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    
+    // Check if grade exists
+    const grade = await storage.getGrade(id);
+    if (!grade) {
+      return res.status(404).json({ error: "Grade not found" });
+    }
+
+    // Verify teacher owns the course
+    const submission = await storage.getSubmission(grade.submissionId);
+    if (!submission) {
+      return res.status(404).json({ error: "Submission not found" });
+    }
+
+    const assignment = await storage.getAssignment(submission.assignmentId);
+    if (!assignment) {
+      return res.status(404).json({ error: "Assignment not found" });
+    }
+
+    const course = await storage.getCourse(assignment.courseId);
+    if (!course || course.teacherId !== req.session.userId) {
+      return res.status(403).json({ error: "You can only update grades for your own courses" });
+    }
+
+    const parsed = updateGradeSchema.safeParse(req.body);
+    
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message });
+    }
+
+    const { score, feedback } = parsed.data;
+
+    // Validate score against assignment max score
+    if (score !== undefined && score > assignment.maxScore) {
+      return res.status(400).json({
+        error: `Score cannot exceed maximum score of ${assignment.maxScore}`,
+      });
+    }
+
+    const updatedGrade = await storage.updateGrade(id, { score, feedback });
+    res.json(updatedGrade);
+  }));
+
   // Teacher Stats Route
   app.get("/api/teacher/stats", requireAuth, requireRole("teacher"), asyncHandler(async (req: Request, res: Response) => {
     const teacherId = req.session.userId!;
@@ -340,8 +600,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(stats);
   }));
 
+  // Health check endpoint for deployment
+  app.get("/api/health", (req: Request, res: Response) => {
+    res.status(200).json({ 
+      status: "OK", 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
+
   // Error handling middleware
-  app.use((err: Error, req: Request, res: Response, next: Function) => {
+  app.use((err: Error, req: Request, res: Response, next: any) => {
     console.error("Error:", err);
     res.status(500).json({ error: "Internal server error" });
   });
