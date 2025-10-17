@@ -497,6 +497,8 @@ export class MongoDBStorage implements IStorage {
   async connect(): Promise<void> {
     try {
       const mongoUri = process.env.MONGO_URI;
+      console.log('MONGO_URI environment variable:', mongoUri ? 'Present' : 'Missing');
+      
       if (mongoUri) {
         // Add connection options to handle SSL and other issues
         await mongoose.connect(mongoUri, {
@@ -506,7 +508,7 @@ export class MongoDBStorage implements IStorage {
         console.log('Connected to MongoDB database');
         this.isConnected = true;
       } else {
-        throw new Error('MONGO_URI not found in environment variables');
+        throw new Error('MONGO_URI not found in environment variables. Please set the MONGO_URI environment variable with your MongoDB connection string.');
       }
     } catch (error) {
       console.error('Failed to connect to MongoDB database:', error);

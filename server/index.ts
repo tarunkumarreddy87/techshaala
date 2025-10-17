@@ -36,12 +36,19 @@ const sessionConfig: session.SessionOptions = {
 };
 
 // Use MongoDB session store in production, memory store in development
-if (process.env.NODE_ENV === "production" && process.env.MONGO_URI) {
-  sessionConfig.store = MongoStore.create({
-    mongoUrl: process.env.MONGO_URI,
-    collectionName: 'sessions',
-    ttl: 14 * 24 * 60 * 60 // 14 days
-  });
+if (process.env.NODE_ENV === "production") {
+  if (process.env.MONGO_URI) {
+    console.log('Using MongoDB session store for production');
+    sessionConfig.store = MongoStore.create({
+      mongoUrl: process.env.MONGO_URI,
+      collectionName: 'sessions',
+      ttl: 14 * 24 * 60 * 60 // 14 days
+    });
+  } else {
+    console.warn('MONGO_URI not found, falling back to MemoryStore for sessions');
+  }
+} else {
+  console.log('Using MemoryStore for development');
 }
 
 app.use(session(sessionConfig));
