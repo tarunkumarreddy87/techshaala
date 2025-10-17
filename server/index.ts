@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import fileUpload from "express-fileupload";
+import MongoStore from 'connect-mongo';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
@@ -22,19 +23,28 @@ app.use(fileUpload({
   responseOnLimit: "File size limit has been reached"
 }));
 
-// Session middleware
-app.use(
-  session({
-    secret: process.env.SESSION_SECRET || "hackathon-lms-secret-key",
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    },
-  })
-);
+// Session middleware with MongoDB store for production
+const sessionConfig: session.SessionOptions = {
+  secret: process.env.SESSION_SECRET || "hackathon-lms-secret-key",
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+  },
+};
+
+// Use MongoDB session store in production, memory store in development
+if (process.env.NODE_ENV === "production" && process.env.MONGO_URI) {
+  sessionConfig.store = MongoStore.create({
+    mongoUrl: process.env.MONGO_URI,
+    collectionName: 'sessions',
+    ttl: 14 * 24 * 60 * 60 // 14 days
+  });
+}
+
+app.use(session(sessionConfig));
 
 app.use((req, res, next) => {
   const start = Date.now();
