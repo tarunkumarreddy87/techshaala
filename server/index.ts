@@ -13,6 +13,10 @@ import { createServer } from "http";
 dotenv.config({ path: path.resolve(import.meta.dirname, '..', '.env') });
 
 const app = express();
+
+// Trust proxy for Railway deployment
+app.set('trust proxy', 1);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -28,9 +32,11 @@ const sessionConfig: session.SessionOptions = {
   secret: process.env.SESSION_SECRET || "hackathon-lms-secret-key",
   resave: false,
   saveUninitialized: false,
+  proxy: true,
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
   },
 };
