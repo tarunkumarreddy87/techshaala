@@ -1,28 +1,22 @@
 import express, { type Express } from "express";
 import fs from "fs";
 import path from "path";
-import { createServer as createViteServer, createLogger } from "vite";
-import { type Server } from "http";
-import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const viteLogger = createLogger();
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-export async function setupVite(app: Express, server: Server) {
+import { createServer as createViteServer, createLogger as createViteLogger } from "vite";
+import viteConfig from "../vite.config";
+
+const viteLogger = createViteLogger();
+
+export async function setupVite(app: Express, server: any) {
   const serverOptions = {
     middlewareMode: true,
-    hmr: { server },
+    hmr: {
+      server,
+    },
+    watch: {
+      usePolling: true,
+      interval: 100,
+    },
     allowedHosts: true as const,
   };
   const vite = await createViteServer({
@@ -64,7 +58,7 @@ export async function setupVite(app: Express, server: Server) {
 }
 export function serveStatic(app: Express) {
   // Fix the path to point to the correct build directory
-  const distPath = path.resolve(process.cwd(), 'dist', 'public');
+  const distPath = '/app/dist/public';
   if (!fs.existsSync(distPath)) {
     throw new Error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`,
