@@ -10,9 +10,28 @@ import path from "path";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import type { Message } from "@shared/schema";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Load environment variables from .env file
-dotenv.config({ path: path.resolve(import.meta.dirname, '..', '.env') });
+// Handle both development and production environments
+let envPath = path.resolve(__dirname, '..', '.env');
+if (process.env.NODE_ENV === 'production') {
+  // In production, the .env file might be in the same directory
+  envPath = path.resolve(__dirname, '.env');
+}
+
+// Try to load .env file, but don't fail if it doesn't exist
+try {
+  dotenv.config({ path: envPath });
+  console.log(`Loaded .env file from: ${envPath}`);
+} catch (error) {
+  console.log('No .env file found or error loading it, using environment variables');
+}
 
 const app = express();
 // Trust proxy for Railway deployment
