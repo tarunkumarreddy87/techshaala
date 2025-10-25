@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { Link, useLocation } from "wouter";
 import type { User } from "@shared/schema";
-import { Eye, EyeOff, Apple, Chrome } from "lucide-react";
+import { Eye, EyeOff, Apple, Chrome, GraduationCap } from "lucide-react";
 import { useState } from "react";
 
 export default function Register() {
@@ -41,9 +41,9 @@ export default function Register() {
       setUser(user);
       toast({
         title: "Account created!",
-        description: `Welcome to Crextio, ${user.name}!`,
+        description: `Welcome to Techshaala, ${user.name}!`,
       });
-      setLocation(user.role === "student" ? "/student/dashboard" : "/teacher/dashboard");
+      setLocation(user.role === "student" ? "/student/dashboard" : user.role === "teacher" ? "/teacher/dashboard" : "/admin/dashboard");
     },
     onError: (error: Error) => {
       toast({
@@ -61,33 +61,40 @@ export default function Register() {
   return (
     <div className="min-h-screen w-full flex flex-col md:flex-row">
       {/* Left Panel - Image with Brand Logo */}
-      <div className="hidden md:block md:w-1/2 bg-gradient-to-br from-blue-100 to-blue-50 dark:from-gray-800 dark:to-gray-900 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[url('@assets/45d760f5-961b-43ac-915a-a0abc076add7.png')] bg-cover bg-center bg-no-repeat"></div>
-        {/* Crextio Brand Logo - Moved to Left Panel */}
+      <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-blue-100 to-blue-50 dark:from-gray-800 dark:to-gray-900 relative overflow-hidden">
+        {/* Techshaala Brand Logo - Moved to Left Panel */}
         <div className="absolute top-6 left-6 z-10">
           <div className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-yellow-900">
-              <span className="text-lg font-bold">C</span>
+              <GraduationCap className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold text-white">Crextio</span>
+            <span className="text-xl font-bold text-white">Techshaala</span>
           </div>
+        </div>
+        {/* Background Image */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <img 
+            src="/45d760f5-961b-43ac-915a-a0abc076add7.png" 
+            alt="Learning Management System" 
+            className="w-full h-full object-cover max-w-none"
+          />
         </div>
       </div>
 
       {/* Right Panel - Signup Form */}
-      <div className="w-full md:w-1/2 bg-white dark:bg-gray-900 p-6 sm:p-8 md:p-12 flex flex-col justify-center">
-        <div className="mb-8 md:mb-10 md:hidden">
+      <div className="w-full md:w-1/2 bg-white dark:bg-gray-900 p-4 sm:p-6 md:p-8 lg:p-12 flex flex-col justify-center">
+        <div className="mb-6 md:mb-8 md:hidden">
           <div className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-yellow-400 text-yellow-900">
-              <span className="text-lg font-bold">C</span>
+              <GraduationCap className="h-6 w-6" />
             </div>
-            <span className="text-xl font-bold text-gray-900 dark:text-white">Crextio</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-white">Techshaala</span>
           </div>
         </div>
 
         <div className="max-w-md w-full mx-auto">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white mb-2">Create an account</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6 md:mb-8">Sign up and get 30 day free trial</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-2">Create an account</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">Sign up and get 30 day free trial</p>
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 md:space-y-6">
@@ -173,6 +180,7 @@ export default function Register() {
                       <SelectContent>
                         <SelectItem value="student">Student</SelectItem>
                         <SelectItem value="teacher">Teacher</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -228,7 +236,7 @@ export default function Register() {
 
           <div className="mt-4 md:mt-6 text-center text-xs text-gray-500 dark:text-gray-400">
             By signing up, you agree to our{" "}
-            <a href="#" className="text-yellow-500 hover:underline">Terms & Conditions</a>
+            <Link href="/terms" className="text-yellow-500 hover:underline">Terms & Conditions</Link>
           </div>
         </div>
       </div>

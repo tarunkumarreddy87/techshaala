@@ -19,6 +19,7 @@ import {
 } from "@shared/schema";
 import path from "path";
 import fs from "fs";
+import { sendNotificationToClient, sendNotificationToCourse } from "./index";
 
 // Helper function to handle async route errors
 const asyncHandler = (fn: (req: Request, res: Response, next: any) => Promise<any>) => (req: Request, res: Response, next: any) => {
@@ -136,6 +137,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(sanitizeUser(user));
   }));
 
+  // Add endpoint to update user preferences
+  app.put("/api/auth/preferences", requireAuth, asyncHandler(async (req: Request, res: Response) => {
+    const { theme, emailNotifications, language } = req.body;
+    const userId = req.session.userId!;
+    
+    // Get current user
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
+    // Update user preferences (in a real implementation, you might want to store these in a separate collection)
+    // For now, we'll just return the updated preferences
+    const updatedPreferences = {
+      theme: theme || "light",
+      emailNotifications: emailNotifications !== undefined ? emailNotifications : true,
+      language: language || "en"
+    };
+    
+    res.json(updatedPreferences);
+  }));
+
   // Course Routes
   app.get("/api/courses", asyncHandler(async (req: Request, res: Response) => {
     const courses = await storage.getAllCourses();
@@ -209,6 +232,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const course = await storage.createCourse(parsed.data);
+    
+    // Get all students enrolled in courses taught by this teacher
+    const students = await storage.getAllUsers();
+    const studentUsers = students.filter(user => user.role === "student");
+    
+    // Send notification to all students about new course
+    for (const student of studentUsers) {
+      sendNotificationToClient(student.id, {
+        id: `course-${course.id}-${Date.now()}`,
+        type: "course_chat",
+        title: "New Course Available",
+        message: `A new course "${course.title}" has been created`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        relatedId: course.id
+      });
+    }
+    
     res.status(201).json(course);
   }));
 
@@ -339,6 +380,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const assignment = await storage.createAssignment(parsed.data);
+    
+    // Get all students enrolled in this course
+    const enrollments = await storage.getEnrollmentsByCourse(courseId);
+    
+    // Send notification to all students in the course
+    for (const enrollment of enrollments) {
+      sendNotificationToClient(enrollment.studentId, {
+        id: `assignment-${assignment.id}-${Date.now()}`,
+        type: "assignment_due",
+        title: "New Assignment",
+        message: `A new assignment "${assignment.title}" has been created in course "${course.title}"`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        relatedId: assignment.id
+      });
+    }
+    
     res.status(201).json(assignment);
   }));
 

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: "student" | "teacher";
+  requiredRole?: "student" | "teacher" | "admin";
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
@@ -19,7 +19,7 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     };
 
     checkAuth();
-  }, [refreshAuth]);
+  }, []);
 
   if (isLoading || isCheckingAuth) {
     return (
@@ -34,7 +34,10 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
   }
 
   if (requiredRole && user.role !== requiredRole) {
-    const redirectPath = user.role === "student" ? "/student/dashboard" : "/teacher/dashboard";
+    // If user has wrong role, redirect to their dashboard
+    const redirectPath = user.role === "student" ? "/student/dashboard" : 
+                        user.role === "teacher" ? "/teacher/dashboard" : 
+                        "/admin/dashboard";
     return <Redirect to={redirectPath} />;
   }
 

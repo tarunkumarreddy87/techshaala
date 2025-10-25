@@ -1,9 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-async function throwIfResNotOk(res: Response) {
+async function throwIfResNotOk(res: Response, text: string) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    throw new Error(`${res.status}: ${text || res.statusText}`);
   }
 }
 
@@ -13,17 +12,32 @@ export async function apiRequest<T = any>(
   data?: unknown | undefined,
   headers?: Record<string, string>
 ): Promise<T> {
+  // Ensure the URL starts with /api or is a full URL
+  const fullUrl = url.startsWith('/api') ? url : `/api${url}`;
+  
   const isFormData = data instanceof FormData;
   
-  const res = await fetch(url, {
+  const res = await fetch(fullUrl, {
     method,
     headers: isFormData ? headers || {} : data ? { "Content-Type": "application/json", ...headers } : headers || {},
     body: isFormData ? data as FormData : data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
 
-  await throwIfResNotOk(res);
-  return await res.json();
+  // Check if response is HTML (which would indicate a routing issue)
+  const responseText = await res.text();
+  if (responseText.startsWith('<!DOCTYPE') || responseText.startsWith('<html')) {
+    throw new Error('Received HTML response instead of JSON. This usually indicates a routing issue.');
+  }
+  
+  // Try to parse as JSON
+  try {
+    const jsonData = JSON.parse(responseText);
+    await throwIfResNotOk(res, responseText);
+    return jsonData;
+  } catch (e: any) {
+    throw new Error(`Failed to parse response as JSON: ${e.message}`);
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -40,8 +54,15 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
-    await throwIfResNotOk(res);
-    return await res.json();
+    const text = await res.text();
+    
+    // Check if response is HTML (which would indicate a routing issue)
+    if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+      throw new Error('Received HTML response instead of JSON. This usually indicates a routing issue.');
+    }
+    
+    await throwIfResNotOk(res, text);
+    return JSON.parse(text);
   };
 
 export const queryClient = new QueryClient({
@@ -50,8 +71,10 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes
+      retry: 1,
+      refetchOnMount: true,
     },
     mutations: {
       retry: false,

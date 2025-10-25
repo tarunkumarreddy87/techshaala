@@ -1,6 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCourseSchema, type InsertCourse } from "@shared/schema";
+import { insertCourseSchema, updateCourseSchema, type InsertCourse, type Chapter } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,13 +11,15 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useRoute, useLocation } from "wouter";
 import { Loader2, ArrowLeft } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { YouTubeChapters } from "@/components/youtube-chapters";
 
 export default function EditCourse() {
   const { toast } = useToast();
   const [, params] = useRoute("/teacher/course/:id/edit");
   const [, setLocation] = useLocation();
   const courseId = params?.id;
+  const [chapters, setChapters] = useState<Chapter[]>([]);
 
   const { data: course, isLoading: courseLoading } = useQuery<InsertCourse>({
     queryKey: [`/api/courses/${courseId}`],
@@ -25,7 +27,7 @@ export default function EditCourse() {
   });
 
   const form = useForm<InsertCourse>({
-    resolver: zodResolver(insertCourseSchema),
+    resolver: zodResolver(updateCourseSchema),
     defaultValues: {
       title: "",
       description: "",
@@ -45,12 +47,27 @@ export default function EditCourse() {
         youtubeLink: course.youtubeLink || "",
         chapters: course.chapters || "",
       });
+      
+      // Parse chapters if they exist
+      if (course.chapters) {
+        try {
+          const parsedChapters = JSON.parse(course.chapters);
+          setChapters(parsedChapters);
+        } catch (e) {
+          console.error("Error parsing chapters:", e);
+        }
+      }
     }
   }, [course, form, form.formState.isDirty]);
 
   const updateCourseMutation = useMutation({
     mutationFn: async (data: InsertCourse) => {
-      return await apiRequest("PUT", `/api/courses/${courseId}`, data);
+      // Add chapters to the data
+      const courseData = {
+        ...data,
+        chapters: chapters.length > 0 ? JSON.stringify(chapters) : ""
+      };
+      return await apiRequest("PUT", `/api/courses/${courseId}`, courseData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/courses"] });
@@ -205,27 +222,12 @@ export default function EditCourse() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="chapters"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Chapters (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder='[{"id": 1, "title": "Chapter 1", "youtubeId": "videoId1", "duration": "10:30"}, {"id": 2, "title": "Chapter 2", "youtubeId": "videoId2", "duration": "15:45"}]'
-                        className="min-h-32"
-                        {...field}
-                        value={field.value || ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Add chapters in JSON format with title, YouTube ID, and duration
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="space-y-4">
+                <YouTubeChapters 
+                  initialChapters={chapters}
+                  onChange={setChapters} 
+                />
+              </div>
 
               <div className="flex gap-4">
                 <Button

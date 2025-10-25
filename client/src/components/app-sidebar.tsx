@@ -1,4 +1,4 @@
-import { Home, BookOpen, FileText, Award, LogOut } from "lucide-react";
+import { Home, BookOpen, FileText, Award, LogOut, User, MessagesSquare } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -14,7 +14,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
 import { AppLogo } from "./app-logo";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 
 export function AppSidebar() {
@@ -25,16 +25,28 @@ export function AppSidebar() {
     { title: "Dashboard", url: "/student/dashboard", icon: Home },
     { title: "My Courses", url: "/student/courses", icon: BookOpen },
     { title: "Assignments", url: "/student/assignments", icon: FileText },
-    { title: "Grades", url: "/student/grades", icon: Award },
+    { title: "Course Chat", url: "/student/course-chat", icon: MessagesSquare },
+    { title: "Profile", url: "/student/profile", icon: User },
   ];
 
   const teacherItems = [
     { title: "Dashboard", url: "/teacher/dashboard", icon: Home },
     { title: "My Courses", url: "/teacher/courses", icon: BookOpen },
     { title: "Assignments", url: "/teacher/assignments", icon: FileText },
+    { title: "Course Chat", url: "/teacher/course-chat", icon: MessagesSquare },
+    { title: "Profile", url: "/teacher/profile", icon: User },
   ];
 
-  const items = user?.role === "student" ? studentItems : teacherItems;
+  const adminItems = [
+    { title: "Dashboard", url: "/admin/dashboard", icon: Home },
+    { title: "Profile", url: "/admin/profile", icon: User },
+  ];
+
+  const items = user?.role === "student" 
+    ? studentItems 
+    : user?.role === "teacher" 
+      ? teacherItems 
+      : adminItems;
 
   const handleLogout = () => {
     setUser(null);
@@ -82,11 +94,29 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-4 border-t">
-        <div className="flex items-center gap-3 mb-3">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback className="bg-primary text-primary-foreground">
-              {user ? getInitials(user.name) : "U"}
-            </AvatarFallback>
+        <div 
+          className="flex items-center gap-3 mb-3 cursor-pointer hover:bg-muted p-2 rounded-md transition-colors"
+          onClick={() => {
+            const profileUrl = user?.role === "student" 
+              ? "/student/profile" 
+              : user?.role === "teacher" 
+                ? "/teacher/profile" 
+                : "/admin/profile";
+            setLocation(profileUrl);
+          }}
+        >
+          <Avatar className="h-10 w-10 rounded-full">
+            {user?.profileImage ? (
+              <AvatarImage 
+                src={user.profileImage.startsWith('/') ? `${window.location.origin}${user.profileImage}` : user.profileImage} 
+                alt={user.name} 
+                className="object-cover rounded-full"
+              />
+            ) : (
+              <AvatarFallback className="bg-primary text-primary-foreground rounded-full">
+                {user ? getInitials(user.name) : "U"}
+              </AvatarFallback>
+            )}
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.name}</p>

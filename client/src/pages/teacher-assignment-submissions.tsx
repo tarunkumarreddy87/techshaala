@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { EmptyState } from "@/components/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, FileText, Award, Users, Loader2, Edit, CheckCircle, XCircle, Clock } from "lucide-react";
+import { ArrowLeft, FileText, Award, Users, Loader2, Edit, CheckCircle, XCircle, Clock, Calendar, TrendingUp, BarChart3 } from "lucide-react";
 import { format, isBefore } from "date-fns";
 import type { Assignment, SubmissionWithDetails } from "@shared/schema";
 import { useState } from "react";
@@ -27,6 +27,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function TeacherAssignmentSubmissions() {
   const { toast } = useToast();
@@ -35,6 +42,7 @@ export default function TeacherAssignmentSubmissions() {
   const assignmentId = params?.id;
   const [selectedSubmission, setSelectedSubmission] = useState<SubmissionWithDetails | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<"all" | "graded" | "pending">("all");
 
   const { data: assignment, isLoading: assignmentLoading } = useQuery<Assignment>({
     queryKey: [`/api/assignments/${assignmentId}`],
@@ -151,6 +159,28 @@ export default function TeacherAssignmentSubmissions() {
       .slice(0, 2);
   };
 
+  // Filter submissions based on status
+  const filteredSubmissions = submissions?.filter(submission => {
+    if (filterStatus === "all") return true;
+    if (filterStatus === "graded") return !!submission.grade;
+    if (filterStatus === "pending") return !submission.grade;
+    return true;
+  }) || [];
+
+  // Calculate statistics
+  const gradedSubmissions = submissions?.filter(s => s.grade) || [];
+  const gradedCount = gradedSubmissions.length;
+  const pendingCount = (submissions?.length || 0) - gradedCount;
+  
+  // Calculate average score safely
+  let totalScore = 0;
+  gradedSubmissions.forEach(submission => {
+    if (submission.grade) {
+      totalScore += submission.grade.score;
+    }
+  });
+  const averageScore = gradedCount > 0 ? totalScore / gradedCount : 0;
+
   if (assignmentLoading || submissionsLoading) {
     return (
       <div className="p-6 space-y-6">
@@ -176,9 +206,6 @@ export default function TeacherAssignmentSubmissions() {
     );
   }
 
-  const gradedCount = submissions?.filter(s => s.grade).length || 0;
-  const pendingCount = (submissions?.length || 0) - gradedCount;
-
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -194,59 +221,198 @@ export default function TeacherAssignmentSubmissions() {
         </Button>
       </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Assignment Details Card */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <CardTitle className="text-3xl">{assignment.title}</CardTitle>
+                  <CardDescription className="mt-2 text-base">
+                    {assignment.description}
+                  </CardDescription>
+                </div>
+                <FileText className="h-8 w-8 text-primary flex-shrink-0" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <span>{submissions?.length || 0} submissions</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Award className="h-4 w-4 text-muted-foreground" />
+                  <span>{assignment.maxScore} points max</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>Due {format(new Date(assignment.dueDate), "MMM d, yyyy 'at' h:mm a")}</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">{gradedCount} graded</Badge>
+                <Badge variant="outline">{pendingCount} pending</Badge>
+                <Badge variant="default" className="bg-chart-3">
+                  Avg. Score: {averageScore.toFixed(1)}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Submission Rate</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {submissions?.length ? Math.round((submissions.length / (submissions.length + 1)) * 100) : 0}%
+                </div>
+                <p className="text-xs text-muted-foreground">Of enrolled students</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">On-time Submissions</CardTitle>
+                <CheckCircle className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {submissions?.filter(s => 
+                    s.submittedAt && 
+                    isBefore(new Date(s.submittedAt), new Date(assignment.dueDate.toString()))
+                  ).length || 0}
+                </div>
+                <p className="text-xs text-muted-foreground">Submitted before deadline</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Late Submissions</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {submissions?.filter(s => 
+                    s.submittedAt && 
+                    !isBefore(new Date(s.submittedAt), new Date(assignment.dueDate.toString()))
+                  ).length || 0}
+                </div>
+                <p className="text-xs text-muted-foreground">Submitted after deadline</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* Performance Overview */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5" />
+              Performance Overview
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Graded</span>
+                  <span>{gradedCount}/{submissions?.length || 0}</span>
+                </div>
+                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-primary" 
+                    style={{ width: `${submissions?.length ? (gradedCount / submissions.length) * 100 : 0}%` }}
+                  ></div>
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span>Average Score</span>
+                  <span>{averageScore.toFixed(1)}/{assignment.maxScore}</span>
+                </div>
+                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-chart-2" 
+                    style={{ width: `${(averageScore / assignment.maxScore) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+              <div className="pt-2">
+                <h4 className="font-medium mb-2">Score Distribution</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 text-xs">Excellent</div>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500" style={{ width: "60%" }}></div>
+                    </div>
+                    <div className="w-8 text-xs text-right">60%</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 text-xs">Good</div>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500" style={{ width: "25%" }}></div>
+                    </div>
+                    <div className="w-8 text-xs text-right">25%</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 text-xs">Needs Work</div>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-yellow-500" style={{ width: "15%" }}></div>
+                    </div>
+                    <div className="w-8 text-xs text-right">15%</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Submissions Table */}
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <CardTitle className="text-3xl">{assignment.title}</CardTitle>
-              <CardDescription className="mt-2 text-base">
-                {assignment.description}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <CardTitle>Student Submissions</CardTitle>
+              <CardDescription>
+                View all student submissions with submission status
               </CardDescription>
             </div>
-            <FileText className="h-8 w-8 text-primary flex-shrink-0" />
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-6 text-sm">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-muted-foreground" />
-              <span>{submissions?.length || 0} submissions</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Award className="h-4 w-4 text-muted-foreground" />
-              <span>{assignment.maxScore} points max</span>
+              <span className="text-sm text-muted-foreground">Filter:</span>
+              <Select value={filterStatus} onValueChange={(value: "all" | "graded" | "pending") => setFilterStatus(value)}>
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="graded">Graded</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Badge variant="secondary">{gradedCount} graded</Badge>
-            <Badge variant="outline">{pendingCount} pending</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* New Table View for Submissions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Student Submissions</CardTitle>
-          <CardDescription>
-            View all student submissions with submission status
-          </CardDescription>
         </CardHeader>
         <CardContent>
-          {submissions && submissions.length > 0 ? (
+          {filteredSubmissions.length > 0 ? (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">S.No</TableHead>
                   <TableHead>Student Name</TableHead>
-                  <TableHead>Course Name</TableHead>
                   <TableHead>Submitted On</TableHead>
+                  <TableHead>Score</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {submissions.map((submission, index) => {
+                {filteredSubmissions.map((submission, index) => {
                   const isOnTime = submission.submittedAt && assignment.dueDate && 
                     isBefore(new Date(submission.submittedAt), new Date(assignment.dueDate.toString()));
                   
@@ -263,11 +429,19 @@ export default function TeacherAssignmentSubmissions() {
                           <span>{submission.student.name}</span>
                         </div>
                       </TableCell>
-                      <TableCell>{submission.assignment?.title || "N/A"}</TableCell>
                       <TableCell>
                         {submission.submittedAt ? 
                           format(new Date(submission.submittedAt), "MMM d, yyyy 'at' h:mm a") : 
                           "Not submitted"}
+                      </TableCell>
+                      <TableCell>
+                        {submission.grade ? (
+                          <Badge variant="default" className="bg-chart-2">
+                            {submission.grade.score}/{assignment.maxScore}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         {submission.submittedAt ? (
@@ -386,8 +560,10 @@ export default function TeacherAssignmentSubmissions() {
           ) : (
             <EmptyState
               icon={Users}
-              title="No submissions yet"
-              description="Students haven't submitted their work for this assignment"
+              title="No submissions found"
+              description={filterStatus === "all" 
+                ? "Students haven't submitted their work for this assignment" 
+                : `No ${filterStatus} submissions found`}
             />
           )}
         </CardContent>

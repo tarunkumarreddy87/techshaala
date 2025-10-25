@@ -9,13 +9,19 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ProtectedRoute } from "@/components/protected-route";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NotificationBell } from "@/components/notification-bell";
 import { useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import Login from "@/pages/login";
 import Register from "@/pages/register";
+import Profile from "@/pages/profile";
+import TestImageUpload from "@/pages/test-image-upload";
+import Terms from "@/pages/terms";
 import StudentDashboard from "@/pages/student-dashboard";
 import TeacherDashboard from "@/pages/teacher-dashboard";
+import AdminDashboard from "@/pages/admin-dashboard";
+import AdminUserDetail from "@/pages/admin-user-detail";
 import StudentCourses from "@/pages/student-courses";
 import StudentCourseDetail from "@/pages/student-course-detail";
 import TeacherCourseDetail from "@/pages/teacher-course-detail";
@@ -27,8 +33,13 @@ import SubmitAssignment from "@/pages/submit-assignment";
 import TeacherAssignmentSubmissions from "@/pages/teacher-assignment-submissions";
 import StudentGrades from "@/pages/student-grades";
 import StudentAssignments from "@/pages/student-assignments";
+import CourseChatSelection from "@/pages/course-chat-selection";
 import LearningPage from "@/pages/learning-page";
 import NotFound from "@/pages/not-found";
+import TeacherCourses from "@/pages/teacher-courses";
+import TeacherAssignments from "@/pages/teacher-assignments";
+import TeacherStudents from "@/pages/teacher-students";
+import WhatsAppCourseChat from "@/pages/whatsapp-course-chat";
 
 function HomeRedirect() {
   const { user } = useAuth();
@@ -37,23 +48,52 @@ function HomeRedirect() {
     return <Redirect to="/login" />;
   }
   
-  const redirectPath = user.role === "student" ? "/student/dashboard" : "/teacher/dashboard";
+  const redirectPath = user.role === "student" ? "/student/dashboard" : 
+                      user.role === "teacher" ? "/teacher/dashboard" : 
+                      "/admin/dashboard";
   return <Redirect to={redirectPath} />;
 }
 
-function Router() {
+const ProfileRedirect = () => {
   const { user } = useAuth();
+  
+  if (!user) {
+    return <Redirect to="/login" />;
+  }
+  
+  const profilePath = user.role === "student" 
+    ? "/student/profile" 
+    : user.role === "teacher" 
+      ? "/teacher/profile" 
+      : "/admin/profile";
+  return <Redirect to={profilePath} />;
+};
 
+function Router() {
   return (
     <Switch>
       <Route path="/" component={HomeRedirect} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/terms" component={Terms} />
+      <Route path="/test-image-upload">
+        <ProtectedRoute>
+          <TestImageUpload />
+        </ProtectedRoute>
+      </Route>
+      
+      {/* Generic profile route that redirects to role-specific profile */}
+      <Route path="/profile" component={ProfileRedirect} />
       
       {/* Student Routes */}
       <Route path="/student/dashboard">
         <ProtectedRoute requiredRole="student">
           <StudentDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/profile">
+        <ProtectedRoute requiredRole="student">
+          <Profile />
         </ProtectedRoute>
       </Route>
       <Route path="/student/courses">
@@ -86,6 +126,16 @@ function Router() {
           <StudentGrades />
         </ProtectedRoute>
       </Route>
+      <Route path="/student/course-chat">
+        <ProtectedRoute requiredRole="student">
+          <CourseChatSelection />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/course-chat/:courseId">
+        <ProtectedRoute requiredRole="student">
+          <WhatsAppCourseChat />
+        </ProtectedRoute>
+      </Route>
 
       {/* Teacher Routes */}
       <Route path="/teacher/dashboard">
@@ -93,9 +143,14 @@ function Router() {
           <TeacherDashboard />
         </ProtectedRoute>
       </Route>
+      <Route path="/teacher/profile">
+        <ProtectedRoute requiredRole="teacher">
+          <Profile />
+        </ProtectedRoute>
+      </Route>
       <Route path="/teacher/courses">
         <ProtectedRoute requiredRole="teacher">
-          <TeacherDashboard />
+          <TeacherCourses />
         </ProtectedRoute>
       </Route>
       <Route path="/teacher/course/:id">
@@ -130,7 +185,39 @@ function Router() {
       </Route>
       <Route path="/teacher/assignments">
         <ProtectedRoute requiredRole="teacher">
-          <TeacherDashboard />
+          <TeacherAssignments />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/course-chat">
+        <ProtectedRoute requiredRole="teacher">
+          <CourseChatSelection />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/course-chat/:courseId">
+        <ProtectedRoute requiredRole="teacher">
+          <WhatsAppCourseChat />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/students">
+        <ProtectedRoute requiredRole="teacher">
+          <TeacherStudents />
+        </ProtectedRoute>
+      </Route>
+
+      {/* Admin Routes */}
+      <Route path="/admin/dashboard">
+        <ProtectedRoute requiredRole="admin">
+          <AdminDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/user/:id">
+        <ProtectedRoute requiredRole="admin">
+          <AdminUserDetail />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/admin/profile">
+        <ProtectedRoute requiredRole="admin">
+          <Profile />
         </ProtectedRoute>
       </Route>
 
@@ -141,7 +228,9 @@ function Router() {
 
 function AppContent() {
   const { user, isLoading, refreshAuth } = useAuth();
-  const isAuthPage = window.location.pathname === "/login" || window.location.pathname === "/register";
+  const isAuthPage = window.location.pathname === "/login" || 
+                    window.location.pathname === "/register" || 
+                    window.location.pathname === "/terms";
 
   // Refresh auth state on app load
   useEffect(() => {
@@ -163,7 +252,7 @@ function AppContent() {
   }
 
   if (!user) {
-    return <Router />;
+    return <Redirect to="/login" />;
   }
 
   const style = {
@@ -178,7 +267,10 @@ function AppContent() {
         <div className="flex flex-col flex-1 overflow-hidden">
           <header className="flex items-center justify-between p-4 border-b bg-background">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <NotificationBell />
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto">
             <Router />

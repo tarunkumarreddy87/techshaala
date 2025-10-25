@@ -54,7 +54,7 @@ export function AssignmentCard({ assignment, actionButton, showCourse = false, s
               <FileText className="h-5 w-5 text-primary flex-shrink-0" />
               <span className="truncate">{assignment.title}</span>
             </CardTitle>
-            {showCourse && (
+            {showCourse && assignment.course && (
               <p className="text-sm text-muted-foreground mt-1">
                 {assignment.course.title}
               </p>

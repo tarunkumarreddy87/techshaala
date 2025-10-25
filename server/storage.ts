@@ -27,7 +27,8 @@ const mongoUserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  role: { type: String, required: true, enum: ["student", "teacher"] },
+  role: { type: String, required: true, enum: ["student", "teacher", "admin"] },
+  isBlocked: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -40,6 +41,7 @@ const mongoCourseSchema = new mongoose.Schema({
   // Add YouTube link and chapters fields
   youtubeLink: { type: String },
   chapters: { type: String }, // JSON string of chapters
+  isArchived: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -57,6 +59,10 @@ const mongoAssignmentSchema = new mongoose.Schema({
   description: { type: String, required: true },
   dueDate: { type: Date, required: true },
   maxScore: { type: Number, default: 100 },
+  // Notification flags
+  notified1Day: { type: Boolean, default: false },
+  notified1Hour: { type: Boolean, default: false },
+  notified5Minutes: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -81,6 +87,35 @@ const mongoGradeSchema = new mongoose.Schema({
   gradedAt: { type: Date, default: Date.now }
 });
 
+// Add MongoDB schema for messages
+const mongoMessageSchema = new mongoose.Schema({
+  _id: { type: String, default: () => randomUUID() },
+  senderId: { type: String, required: true },
+  receiverId: { type: String },
+  courseId: { type: String },
+  content: { type: String, required: true },
+  // Add file attachment fields
+  fileUrl: { type: String },
+  fileName: { type: String },
+  fileType: { type: String },
+  fileSize: { type: Number },
+  timestamp: { type: Date, default: Date.now }
+});
+
+// Add MongoDB schema for syllabus items
+const mongoSyllabusSchema = new mongoose.Schema({
+  _id: { type: String, default: () => randomUUID() },
+  courseId: { type: String, required: true },
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  // File upload fields
+  fileName: { type: String },
+  filePath: { type: String },
+  fileType: { type: String },
+  fileSize: { type: Number },
+  createdAt: { type: Date, default: Date.now }
+});
+
 // MongoDB models
 const MongoUser = mongoose.model("User", mongoUserSchema);
 const MongoCourse = mongoose.model("Course", mongoCourseSchema);
@@ -88,28 +123,64 @@ const MongoEnrollment = mongoose.model("Enrollment", mongoEnrollmentSchema);
 const MongoAssignment = mongoose.model("Assignment", mongoAssignmentSchema);
 const MongoSubmission = mongoose.model("Submission", mongoSubmissionSchema);
 const MongoGrade = mongoose.model("Grade", mongoGradeSchema);
+const MongoMessage = mongoose.model("Message", mongoMessageSchema);
+const MongoSyllabus = mongoose.model("Syllabus", mongoSyllabusSchema);
 
 // In-memory storage as fallback
 class MemStorage {
-  private users: Map<string, any>;
-  private courses: Map<string, any>;
-  private enrollments: Map<string, any>;
-  private assignments: Map<string, any>;
-  private submissions: Map<string, any>;
-  private grades: Map<string, any>;
+  private users = new Map<string, any>();
+  private courses = new Map<string, any>();
+  private enrollments = new Map<string, any>();
+  private assignments = new Map<string, any>();
+  private submissions = new Map<string, any>();
+  private grades = new Map<string, any>();
+  private messages = new Map<string, any>();
 
   constructor() {
-    this.users = new Map();
-    this.courses = new Map();
-    this.enrollments = new Map();
-    this.assignments = new Map();
-    this.submissions = new Map();
-    this.grades = new Map();
+    // Initialize with some default data
+    const adminUser = {
+      id: "admin-1",
+      name: "Admin User",
+      email: "admin@gmail.com",
+      password: "$2b$10$a/lYAx0A1X59I3rbBMVcKORWHO3YYprFoSJd8wPMZPGjjbldRFjxW", // bcrypt hash of "tarun@487"
+      role: "admin",
+      isBlocked: false,
+      createdAt: new Date()
+    };
+    this.users.set(adminUser.id, adminUser);
+
+    // Add a sample teacher
+    const teacherUser = {
+      id: "teacher-1",
+      name: "John Teacher",
+      email: "john.teacher@example.com",
+      password: "$2b$10$a/lYAx0A1X59I3rbBMVcKORWHO3YYprFoSJd8wPMZPGjjbldRFjxW", // bcrypt hash of "tarun@487"
+      role: "teacher",
+      isBlocked: false,
+      createdAt: new Date()
+    };
+    this.users.set(teacherUser.id, teacherUser);
+
+    // Add a sample student
+    const studentUser = {
+      id: "student-1",
+      name: "Jane Student",
+      email: "jane.student@example.com",
+      password: "$2b$10$a/lYAx0A1X59I3rbBMVcKORWHO3YYprFoSJd8wPMZPGjjbldRFjxW", // bcrypt hash of "tarun@487"
+      role: "student",
+      isBlocked: false,
+      createdAt: new Date()
+    };
+    this.users.set(studentUser.id, studentUser);
   }
 
   // User methods
   async getUser(id: string): Promise<SharedUser | undefined> {
     return this.users.get(id);
+  }
+
+  async getAllUsers(): Promise<SharedUser[]> {
+    return Array.from(this.users.values());
   }
 
   async getUserByEmail(email: string): Promise<SharedUser | undefined> {
@@ -123,44 +194,133 @@ class MemStorage {
     return user;
   }
 
+  async updateUser(id: string, updateUser: Partial<InsertUser>): Promise<SharedUser | undefined> {
+    const user: any = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, ...updateUser };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    return this.users.delete(id);
+  }
+
+  // Additional methods to prevent runtime errors (placeholders)
+  async getTeacherStudents(teacherId: string): Promise<any[]> {
+    // Get all courses for this teacher
+    const courses = Array.from(this.courses.values()).filter((c: any) => c.teacherId === teacherId);
+    const courseIds = courses.map((c: any) => c.id);
+    
+    // Get all unique students across all courses
+    const studentIds = new Set<string>();
+    const studentsMap = new Map<string, any>();
+    
+    for (const courseId of courseIds) {
+      const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.courseId === courseId);
+      for (const enrollment of enrollments) {
+        if (!studentIds.has(enrollment.studentId)) {
+          studentIds.add(enrollment.studentId);
+          const student = this.users.get(enrollment.studentId);
+          if (student) {
+            studentsMap.set(enrollment.studentId, student);
+          }
+        }
+      }
+    }
+    
+    return Array.from(studentsMap.values());
+  }
+  
+  private syllabusItems = new Map<string, any>();
+  
+  async createSyllabusItem(syllabusData: any): Promise<any> {
+    const id = randomUUID();
+    const syllabusItem: any = { 
+      ...syllabusData, 
+      id, 
+      createdAt: new Date() 
+    };
+    this.syllabusItems.set(id, syllabusItem);
+    return syllabusItem;
+  }
+  
+  async getSyllabusItemsByCourse(courseId: string): Promise<any[]> {
+    return Array.from(this.syllabusItems.values()).filter((item: any) => item.courseId === courseId);
+  }
+  
+  async getSyllabusItemById(id: string): Promise<any> {
+    return this.syllabusItems.get(id);
+  }
+  
+  async getMessagesBetweenUsers(userId1: string, userId2: string): Promise<any[]> {
+    // Filter messages between two users
+    return Array.from(this.messages.values()).filter((m: any) => 
+      (m.senderId === userId1 && m.receiverId === userId2) ||
+      (m.senderId === userId2 && m.receiverId === userId1)
+    );
+  }
+  
+  async getMessagesByCourse(courseId: string): Promise<any[]> {
+    // Filter messages by course
+    return Array.from(this.messages.values()).filter((m: any) => m.courseId === courseId);
+  }
+  
+  async createMessage(messageData: any): Promise<any> {
+    const id = randomUUID();
+    const message: any = { ...messageData, id, timestamp: new Date() };
+    this.messages.set(id, message);
+    return message;
+  }
+
   // Course methods
   async getCourse(id: string): Promise<SharedCourse | undefined> {
     return this.courses.get(id);
   }
 
   async getCourseWithTeacher(id: string): Promise<CourseWithTeacher | undefined> {
-    const course: any = this.courses.get(id);
+    const course = this.courses.get(id);
     if (!course) return undefined;
-
-    const teacher: any = this.users.get(course.teacherId);
+    
+    const teacher = this.users.get(course.teacherId);
     if (!teacher) return undefined;
-
+    
     return { ...course, teacher };
   }
 
   async getAllCourses(): Promise<CourseWithTeacher[]> {
-    const courses: any = Array.from(this.courses.values());
     const coursesWithTeachers: CourseWithTeacher[] = [];
-
-    for (const course of courses) {
-      const teacher: any = this.users.get(course.teacherId);
-      if (teacher) {
-        coursesWithTeachers.push({ ...course, teacher });
+    
+    const courseIds = Array.from(this.courses.keys());
+    for (let i = 0; i < courseIds.length; i++) {
+      const course = this.courses.get(courseIds[i]);
+      if (course) {
+        const teacher = this.users.get(course.teacherId);
+        if (teacher) {
+          coursesWithTeachers.push({ ...course, teacher });
+        }
       }
     }
-
+    
     return coursesWithTeachers;
   }
 
   async getCoursesByTeacher(teacherId: string): Promise<CourseWithTeacher[]> {
-    const teacher: any = this.users.get(teacherId);
-    if (!teacher) return [];
-
-    const courses: any = Array.from(this.courses.values()).filter(
-      (course: any) => course.teacherId === teacherId
-    );
-
-    return courses.map((course: any) => ({ ...course, teacher }));
+    const coursesWithTeachers: CourseWithTeacher[] = [];
+    
+    const coursesArray = Array.from(this.courses.values());
+    for (let i = 0; i < coursesArray.length; i++) {
+      const course = coursesArray[i];
+      if (course.teacherId === teacherId) {
+        const teacher = this.users.get(course.teacherId);
+        if (teacher) {
+          coursesWithTeachers.push({ ...course, teacher });
+        }
+      }
+    }
+    
+    return coursesWithTeachers;
   }
 
   async createCourse(insertCourse: InsertCourse): Promise<SharedCourse> {
@@ -170,7 +330,6 @@ class MemStorage {
     return course;
   }
 
-  // Add update course method
   async updateCourse(id: string, updateCourse: Partial<InsertCourse>): Promise<SharedCourse | undefined> {
     const course: any = this.courses.get(id);
     if (!course) return undefined;
@@ -186,39 +345,38 @@ class MemStorage {
   }
 
   async getEnrollmentsByCourse(courseId: string): Promise<SharedEnrollment[]> {
-    return Array.from(this.enrollments.values()).filter(
-      (enrollment: any) => enrollment.courseId === courseId
-    );
+    return Array.from(this.enrollments.values()).filter((e: any) => e.courseId === courseId);
   }
 
   async getEnrollmentsByStudent(studentId: string): Promise<EnrollmentWithCourse[]> {
-    const enrollments: any = Array.from(this.enrollments.values()).filter(
-      (enrollment: any) => enrollment.studentId === studentId
-    );
-
+    const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.studentId === studentId);
     const enrollmentsWithCourses: EnrollmentWithCourse[] = [];
-
+    
     for (const enrollment of enrollments) {
-      const course = await this.getCourseWithTeacher(enrollment.courseId);
+      const course = this.courses.get(enrollment.courseId);
       if (course) {
-        enrollmentsWithCourses.push({ ...enrollment, course });
+        const teacher = this.users.get(course.teacherId);
+        if (teacher) {
+          const courseWithTeacher = { ...course, teacher };
+          enrollmentsWithCourses.push({ ...enrollment, course: courseWithTeacher });
+        }
       }
     }
-
+    
     return enrollmentsWithCourses;
   }
 
   async getStudentsByCourse(courseId: string): Promise<SharedUser[]> {
-    const enrollments: any = await this.getEnrollmentsByCourse(courseId);
+    const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.courseId === courseId);
     const students: SharedUser[] = [];
-
+    
     for (const enrollment of enrollments) {
-      const student: any = this.users.get(enrollment.studentId);
+      const student = this.users.get(enrollment.studentId);
       if (student) {
         students.push(student);
       }
     }
-
+    
     return students;
   }
 
@@ -230,9 +388,8 @@ class MemStorage {
   }
 
   async isStudentEnrolled(studentId: string, courseId: string): Promise<boolean> {
-    return Array.from(this.enrollments.values()).some(
-      (enrollment: any) =>
-        enrollment.studentId === studentId && enrollment.courseId === courseId
+    return Array.from(this.enrollments.values()).some((e: any) => 
+      e.studentId === studentId && e.courseId === courseId
     );
   }
 
@@ -242,54 +399,57 @@ class MemStorage {
   }
 
   async getAssignmentWithCourse(id: string): Promise<AssignmentWithCourse | undefined> {
-    const assignment: any = this.assignments.get(id);
+    const assignment = this.assignments.get(id);
     if (!assignment) return undefined;
-
-    const course: any = this.courses.get(assignment.courseId);
+    
+    const course = this.courses.get(assignment.courseId);
     if (!course) return undefined;
-
+    
     return { ...assignment, course };
   }
 
+  async getAllAssignments(): Promise<SharedAssignment[]> {
+    return Array.from(this.assignments.values());
+  }
+
   async getAssignmentsByCourse(courseId: string): Promise<SharedAssignment[]> {
-    return Array.from(this.assignments.values()).filter(
-      (assignment: any) => assignment.courseId === courseId
-    );
+    return Array.from(this.assignments.values()).filter((a: any) => a.courseId === courseId);
   }
 
   async getAssignmentsByStudent(studentId: string): Promise<AssignmentWithCourse[]> {
-    const enrollments: any = await this.getEnrollmentsByStudent(studentId);
+    // Get all enrollments for this student
+    const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.studentId === studentId);
     const courseIds = enrollments.map((e: any) => e.courseId);
-
-    const assignments: any = Array.from(this.assignments.values()).filter(
-      (assignment: any) => courseIds.includes(assignment.courseId)
+    
+    // Get all assignments for these courses
+    const assignments = Array.from(this.assignments.values()).filter((a: any) => 
+      courseIds.includes(a.courseId)
     );
-
+    
+    // Add course information to each assignment
     const assignmentsWithCourses: AssignmentWithCourse[] = [];
-
     for (const assignment of assignments) {
-      const course: any = this.courses.get(assignment.courseId);
+      const course = this.courses.get(assignment.courseId);
       if (course) {
         assignmentsWithCourses.push({ ...assignment, course });
       }
     }
-
+    
     return assignmentsWithCourses;
   }
 
   async createAssignment(insertAssignment: InsertAssignment): Promise<SharedAssignment> {
     const id = randomUUID();
-    const assignment: any = {
-      ...insertAssignment,
-      id,
+    const assignment: any = { 
+      ...insertAssignment, 
+      id, 
       dueDate: new Date(insertAssignment.dueDate),
-      createdAt: new Date(),
+      createdAt: new Date()
     };
     this.assignments.set(id, assignment);
     return assignment;
   }
 
-  // Add update assignment method
   async updateAssignment(id: string, updateAssignment: UpdateAssignment): Promise<SharedAssignment | undefined> {
     const assignment: any = this.assignments.get(id);
     if (!assignment) return undefined;
@@ -303,6 +463,28 @@ class MemStorage {
     return updatedAssignment;
   }
 
+  // Add method to get assignments due soon for notifications
+  async getAssignmentsDueSoon(): Promise<SharedAssignment[]> {
+    const now = new Date();
+    const oneDayFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    
+    return Array.from(this.assignments.values()).filter((assignment: any) => {
+      const dueDate = new Date(assignment.dueDate);
+      return dueDate > now && dueDate <= oneDayFromNow;
+    });
+  }
+
+  // Add method to update assignment notification flags
+  async updateAssignmentNotification(id: string, flag: 'notified1Day' | 'notified2Hours' | 'notified5Minutes'): Promise<SharedAssignment | undefined> {
+    const assignment: any = this.assignments.get(id);
+    if (!assignment) return undefined;
+    
+    // Update the notification flag
+    assignment[flag] = true;
+    this.assignments.set(id, assignment);
+    return assignment;
+  }
+
   // Submission methods
   async getSubmission(id: string): Promise<SharedSubmission | undefined> {
     return this.submissions.get(id);
@@ -312,58 +494,58 @@ class MemStorage {
     assignmentId: string,
     studentId: string
   ): Promise<SubmissionWithDetails | undefined> {
-    const submission: any = Array.from(this.submissions.values()).find(
-      (s: any) => s.assignmentId === assignmentId && s.studentId === studentId
+    const submission = Array.from(this.submissions.values()).find((s: any) => 
+      s.assignmentId === assignmentId && s.studentId === studentId
     );
-
+    
     if (!submission) return undefined;
-
-    const assignment: any = this.assignments.get(submission.assignmentId);
-    const student: any = this.users.get(submission.studentId);
-    const grade: any = await this.getGradeBySubmission(submission.id);
-
+    
+    const assignment = this.assignments.get(submission.assignmentId);
+    const student = this.users.get(submission.studentId);
+    const grade = Array.from(this.grades.values()).find((g: any) => 
+      g.submissionId === submission.id
+    );
+    
     if (!assignment || !student) return undefined;
-
-    return {
-      ...submission,
-      assignment,
-      student,
-      grade,
+    
+    return { 
+      ...submission, 
+      assignment, 
+      student, 
+      grade: grade || undefined 
     };
   }
 
   async getSubmissionsByAssignment(assignmentId: string): Promise<SubmissionWithDetails[]> {
-    const submissions: any = Array.from(this.submissions.values()).filter(
-      (submission: any) => submission.assignmentId === assignmentId
+    const submissions = Array.from(this.submissions.values()).filter((s: any) => 
+      s.assignmentId === assignmentId
     );
-
+    
     const submissionsWithDetails: SubmissionWithDetails[] = [];
-
+    
     for (const submission of submissions) {
-      const assignment: any = this.assignments.get(submission.assignmentId);
-      const student: any = this.users.get(submission.studentId);
-      const grade: any = await this.getGradeBySubmission(submission.id);
-
+      const assignment = this.assignments.get(submission.assignmentId);
+      const student = this.users.get(submission.studentId);
+      const grade = Array.from(this.grades.values()).find((g: any) => 
+        g.submissionId === submission.id
+      );
+      
       if (assignment && student) {
-        submissionsWithDetails.push({
-          ...submission,
-          assignment,
-          student,
-          grade,
+        submissionsWithDetails.push({ 
+          ...submission, 
+          assignment, 
+          student, 
+          grade: grade || undefined 
         });
       }
     }
-
+    
     return submissionsWithDetails;
   }
 
   async createSubmission(insertSubmission: InsertSubmission): Promise<SharedSubmission> {
     const id = randomUUID();
-    const submission: any = {
-      ...insertSubmission,
-      id,
-      submittedAt: new Date(),
-    };
+    const submission: any = { ...insertSubmission, id, submittedAt: new Date() };
     this.submissions.set(id, submission);
     return submission;
   }
@@ -374,9 +556,7 @@ class MemStorage {
   }
 
   async getGradeBySubmission(submissionId: string): Promise<SharedGrade | undefined> {
-    return Array.from(this.grades.values()).find(
-      (grade: any) => grade.submissionId === submissionId
-    );
+    return Array.from(this.grades.values()).find((g: any) => g.submissionId === submissionId);
   }
 
   async createGrade(insertGrade: InsertGrade): Promise<SharedGrade> {
@@ -386,7 +566,6 @@ class MemStorage {
     return grade;
   }
 
-  // Add update grade method
   async updateGrade(id: string, updateGrade: UpdateGrade): Promise<SharedGrade | undefined> {
     const grade: any = this.grades.get(id);
     if (!grade) return undefined;
@@ -402,36 +581,45 @@ class MemStorage {
     pendingSubmissions: number;
     totalAssignments: number;
   }> {
-    const courses: any = await this.getCoursesByTeacher(teacherId);
+    // Get all courses for this teacher
+    const courses = Array.from(this.courses.values()).filter((c: any) => c.teacherId === teacherId);
     const courseIds = courses.map((c: any) => c.id);
-
+    
+    // Count unique students across all courses
     const studentIds = new Set<string>();
     for (const courseId of courseIds) {
-      const students: any = await this.getStudentsByCourse(courseId);
-      students.forEach((s: any) => studentIds.add(s.id));
+      const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.courseId === courseId);
+      for (const enrollment of enrollments) {
+        studentIds.add(enrollment.studentId);
+      }
     }
-
-    const assignments: any = Array.from(this.assignments.values()).filter((a: any) =>
-      courseIds.includes(a.courseId)
-    );
-
-    const assignmentIds = assignments.map((a: any) => a.id);
-    const allSubmissions: any = Array.from(this.submissions.values()).filter((s: any) =>
-      assignmentIds.includes(s.assignmentId)
-    );
-
-    const gradedSubmissionIds = new Set(
-      Array.from(this.grades.values()).map((g: any) => g.submissionId)
-    );
-
-    const pendingSubmissions = allSubmissions.filter(
-      (s: any) => !gradedSubmissionIds.has(s.id)
-    ).length;
-
+    
+    // Count assignments
+    let totalAssignments = 0;
+    for (const courseId of courseIds) {
+      const assignments = Array.from(this.assignments.values()).filter((a: any) => a.courseId === courseId);
+      totalAssignments += assignments.length;
+    }
+    
+    // Count pending submissions (submissions without grades)
+    let pendingSubmissions = 0;
+    for (const courseId of courseIds) {
+      const assignments = Array.from(this.assignments.values()).filter((a: any) => a.courseId === courseId);
+      for (const assignment of assignments) {
+        const submissions = Array.from(this.submissions.values()).filter((s: any) => s.assignmentId === assignment.id);
+        for (const submission of submissions) {
+          const grade = Array.from(this.grades.values()).find((g: any) => g.submissionId === submission.id);
+          if (!grade) {
+            pendingSubmissions++;
+          }
+        }
+      }
+    }
+    
     return {
       totalStudents: studentIds.size,
       pendingSubmissions,
-      totalAssignments: assignments.length,
+      totalAssignments
     };
   }
 }
@@ -440,8 +628,11 @@ export interface IStorage {
   // User methods
   getUser(id: string): Promise<SharedUser | undefined>;
   getUserByEmail(email: string): Promise<SharedUser | undefined>;
+  getAllUsers(): Promise<SharedUser[]>;
   createUser(user: InsertUser): Promise<SharedUser>;
-
+  updateUser(id: string, user: Partial<InsertUser>): Promise<SharedUser | undefined>;
+  deleteUser(id: string): Promise<boolean>;
+  
   // Course methods
   getCourse(id: string): Promise<SharedCourse | undefined>;
   getCourseWithTeacher(id: string): Promise<CourseWithTeacher | undefined>;
@@ -461,10 +652,13 @@ export interface IStorage {
   // Assignment methods
   getAssignment(id: string): Promise<SharedAssignment | undefined>;
   getAssignmentWithCourse(id: string): Promise<AssignmentWithCourse | undefined>;
+  getAllAssignments(): Promise<SharedAssignment[]>;
   getAssignmentsByCourse(courseId: string): Promise<SharedAssignment[]>;
   getAssignmentsByStudent(studentId: string): Promise<AssignmentWithCourse[]>;
   createAssignment(assignment: InsertAssignment): Promise<SharedAssignment>;
   updateAssignment(id: string, assignment: UpdateAssignment): Promise<SharedAssignment | undefined>;
+  getAssignmentsDueSoon(): Promise<SharedAssignment[]>;
+  updateAssignmentNotification(id: string, flag: 'notified1Day' | 'notified2Hours' | 'notified5Minutes'): Promise<SharedAssignment | undefined>;
 
   // Submission methods
   getSubmission(id: string): Promise<SharedSubmission | undefined>;
@@ -484,6 +678,15 @@ export interface IStorage {
     pendingSubmissions: number;
     totalAssignments: number;
   }>;
+  
+  // Additional methods that are used in routes but missing from interface
+  getTeacherStudents(teacherId: string): Promise<any[]>;
+  createSyllabusItem(syllabusData: any): Promise<any>;
+  getSyllabusItemsByCourse(courseId: string): Promise<any[]>;
+  getSyllabusItemById(id: string): Promise<any>;
+  getMessagesBetweenUsers(userId1: string, userId2: string): Promise<any[]>;
+  getMessagesByCourse(courseId: string): Promise<any[]>;
+  createMessage(messageData: any): Promise<any>;
 }
 
 export class MongoDBStorage implements IStorage {
@@ -557,6 +760,20 @@ export class MongoDBStorage implements IStorage {
     }
   }
 
+  async getAllUsers(): Promise<SharedUser[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const users = await MongoUser.find({}).lean();
+      return users.map(user => {
+        const { _id, ...rest } = user;
+        return { id: _id, ...rest } as unknown as SharedUser;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAllUsers();
+    }
+  }
+
   async createUser(insertUser: InsertUser): Promise<SharedUser> {
     try {
       if (!this.isConnected) throw new Error('Database not connected');
@@ -569,6 +786,146 @@ export class MongoDBStorage implements IStorage {
     } catch (error) {
       console.error('MongoDB error, falling back to in-memory storage:', error);
       return this.fallbackStorage.createUser(insertUser);
+    }
+  }
+
+  async updateUser(id: string, updateUser: Partial<InsertUser>): Promise<SharedUser | undefined> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const updatedUser = await MongoUser.findByIdAndUpdate(
+        id,
+        updateUser,
+        { new: true }
+      ).lean();
+      
+      if (updatedUser) {
+        // Map _id to id to match SharedUser interface
+        const { _id, ...rest } = updatedUser;
+        return { id: _id, ...rest } as unknown as SharedUser;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.updateUser(id, updateUser);
+    }
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const result = await MongoUser.findByIdAndDelete(id);
+      return result != null;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.deleteUser(id);
+    }
+  }
+
+  // Additional methods that are used in routes but not implemented yet
+  // These will fall back to in-memory storage for now
+  async getTeacherStudents(teacherId: string): Promise<any[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      // Placeholder implementation - would need actual implementation based on requirements
+      return this.fallbackStorage.getTeacherStudents(teacherId);
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getTeacherStudents(teacherId);
+    }
+  }
+  
+  async createSyllabusItem(syllabusData: any): Promise<any> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const syllabusDoc = new MongoSyllabus(syllabusData);
+      const savedSyllabus = await syllabusDoc.save();
+      const syllabusObject = savedSyllabus.toObject();
+      
+      const { _id, ...rest } = syllabusObject;
+      return { id: _id, ...rest };
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.createSyllabusItem(syllabusData);
+    }
+  }
+  
+  async getSyllabusItemsByCourse(courseId: string): Promise<any[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const syllabusItems = await MongoSyllabus.find({ courseId }).sort({ createdAt: -1 }).lean();
+      
+      return syllabusItems.map(item => {
+        const { _id, ...rest } = item;
+        return { id: _id, ...rest };
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getSyllabusItemsByCourse(courseId);
+    }
+  }
+  
+  async getSyllabusItemById(id: string): Promise<any> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const syllabusItem = await MongoSyllabus.findById(id).lean();
+      if (syllabusItem) {
+        const { _id, ...rest } = syllabusItem;
+        return { id: _id, ...rest };
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getSyllabusItemById(id);
+    }
+  }
+  
+  async getMessagesBetweenUsers(userId1: string, userId2: string): Promise<any[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const messages = await MongoMessage.find({
+        $or: [
+          { senderId: userId1, receiverId: userId2 },
+          { senderId: userId2, receiverId: userId1 }
+        ]
+      }).sort({ timestamp: 1 }).lean();
+      
+      return messages.map(message => {
+        const { _id, ...rest } = message;
+        return { id: _id, ...rest };
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getMessagesBetweenUsers(userId1, userId2);
+    }
+  }
+  
+  async getMessagesByCourse(courseId: string): Promise<any[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const messages = await MongoMessage.find({ courseId }).sort({ timestamp: 1 }).lean();
+      
+      return messages.map(message => {
+        const { _id, ...rest } = message;
+        return { id: _id, ...rest };
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getMessagesByCourse(courseId);
+    }
+  }
+  
+  async createMessage(messageData: any): Promise<any> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const messageDoc = new MongoMessage(messageData);
+      const savedMessage = await messageDoc.save();
+      const messageObject = savedMessage.toObject();
+      
+      const { _id, ...rest } = messageObject;
+      return { id: _id, ...rest };
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.createMessage(messageData);
     }
   }
 
@@ -857,6 +1214,20 @@ export class MongoDBStorage implements IStorage {
     }
   }
 
+  async getAllAssignments(): Promise<SharedAssignment[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const assignments = await MongoAssignment.find({}).lean();
+      return assignments.map(assignment => {
+        const { _id, ...rest } = assignment;
+        return { id: _id, ...rest } as unknown as SharedAssignment;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAllAssignments();
+    }
+  }
+
   async getAssignmentWithCourse(id: string): Promise<AssignmentWithCourse | undefined> {
     try {
       if (!this.isConnected) throw new Error('Database not connected');
@@ -964,6 +1335,52 @@ export class MongoDBStorage implements IStorage {
     } catch (error) {
       console.error('MongoDB error, falling back to in-memory storage:', error);
       return this.fallbackStorage.updateAssignment(id, updateAssignment);
+    }
+  }
+
+  // Add method to get assignments due soon for notifications
+  async getAssignmentsDueSoon(): Promise<SharedAssignment[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const now = new Date();
+      const oneDayFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      
+      const assignments = await MongoAssignment.find({
+        dueDate: { $gt: now, $lte: oneDayFromNow }
+      }).lean();
+      
+      return assignments.map(assignment => {
+        const { _id, ...rest } = assignment;
+        return { id: _id, ...rest } as unknown as SharedAssignment;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAssignmentsDueSoon();
+    }
+  }
+
+  // Add method to update assignment notification flags
+  async updateAssignmentNotification(id: string, flag: 'notified1Day' | 'notified2Hours' | 'notified5Minutes'): Promise<SharedAssignment | undefined> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const updateData: any = {};
+      updateData[flag] = true;
+      
+      const updatedAssignment = await MongoAssignment.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true }
+      ).lean();
+      
+      if (updatedAssignment) {
+        // Map _id to id to match SharedAssignment interface
+        const { _id, ...rest } = updatedAssignment;
+        return { id: _id, ...rest } as unknown as SharedAssignment;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.updateAssignmentNotification(id, flag);
     }
   }
 
@@ -1241,8 +1658,17 @@ export const storage = {
   getUserByEmail: async (email: string) => {
     return getStorage().getUserByEmail(email);
   },
+  getAllUsers: async () => {
+    return getStorage().getAllUsers();
+  },
   createUser: async (user: InsertUser) => {
     return getStorage().createUser(user);
+  },
+  updateUser: async (id: string, user: Partial<InsertUser>) => {
+    return getStorage().updateUser(id, user);
+  },
+  deleteUser: async (id: string) => {
+    return getStorage().deleteUser(id);
   },
   // Course methods
   getCourse: async (id: string) => {
@@ -1289,6 +1715,9 @@ export const storage = {
   getAssignmentWithCourse: async (id: string) => {
     return getStorage().getAssignmentWithCourse(id);
   },
+  getAllAssignments: async () => {
+    return getStorage().getAllAssignments();
+  },
   getAssignmentsByCourse: async (courseId: string) => {
     return getStorage().getAssignmentsByCourse(courseId);
   },
@@ -1300,6 +1729,12 @@ export const storage = {
   },
   updateAssignment: async (id: string, assignment: UpdateAssignment) => {
     return getStorage().updateAssignment(id, assignment);
+  },
+  getAssignmentsDueSoon: async () => {
+    return getStorage().getAssignmentsDueSoon();
+  },
+  updateAssignmentNotification: async (id: string, flag: 'notified1Day' | 'notified2Hours' | 'notified5Minutes') => {
+    return getStorage().updateAssignmentNotification(id, flag);
   },
   // Submission methods
   getSubmission: async (id: string) => {
@@ -1330,5 +1765,27 @@ export const storage = {
   // Stats methods
   getTeacherStats: async (teacherId: string) => {
     return getStorage().getTeacherStats(teacherId);
+  },
+  // Additional methods that are used in routes but missing from export
+  getTeacherStudents: async (teacherId: string) => {
+    return getStorage().getTeacherStudents(teacherId);
+  },
+  createSyllabusItem: async (syllabusData: any) => {
+    return getStorage().createSyllabusItem(syllabusData);
+  },
+  getSyllabusItemsByCourse: async (courseId: string) => {
+    return getStorage().getSyllabusItemsByCourse(courseId);
+  },
+  getSyllabusItemById: async (id: string) => {
+    return getStorage().getSyllabusItemById(id);
+  },
+  getMessagesBetweenUsers: async (userId1: string, userId2: string) => {
+    return getStorage().getMessagesBetweenUsers(userId1, userId2);
+  },
+  getMessagesByCourse: async (courseId: string) => {
+    return getStorage().getMessagesByCourse(courseId);
+  },
+  createMessage: async (messageData: any) => {
+    return getStorage().createMessage(messageData);
   }
 };

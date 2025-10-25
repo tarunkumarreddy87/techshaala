@@ -1,6 +1,6 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertCourseSchema, type InsertCourse } from "@shared/schema";
+import { insertCourseSchema, type InsertCourse, type Chapter } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,11 +12,14 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
 import { Loader2, ArrowLeft } from "lucide-react";
+import { YouTubeChapters } from "@/components/youtube-chapters";
+import { useState } from "react";
 
 export default function CreateCourse() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const [chapters, setChapters] = useState<Chapter[]>([]);
 
   const form = useForm<InsertCourse>({
     resolver: zodResolver(insertCourseSchema),
@@ -32,7 +35,12 @@ export default function CreateCourse() {
 
   const createCourseMutation = useMutation({
     mutationFn: async (data: InsertCourse) => {
-      return await apiRequest("POST", "/api/courses", data);
+      // Add chapters to the data
+      const courseData = {
+        ...data,
+        chapters: chapters.length > 0 ? JSON.stringify(chapters) : ""
+      };
+      return await apiRequest("POST", "/api/courses", courseData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/courses"] });
@@ -169,28 +177,11 @@ export default function CreateCourse() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="chapters"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Chapters (Optional)</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        placeholder='[{"id": 1, "title": "Chapter 1", "youtubeId": "videoId1", "duration": "10:30"}, {"id": 2, "title": "Chapter 2", "youtubeId": "videoId2", "duration": "15:45"}]'
-                        className="min-h-32"
-                        data-testid="input-chapters"
-                        {...field}
-                        value={field.value || ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Add chapters in JSON format with title, YouTube ID, and duration
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="space-y-4">
+                <YouTubeChapters 
+                  onChange={setChapters} 
+                />
+              </div>
 
               <div className="flex gap-4">
                 <Button

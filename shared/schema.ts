@@ -1,4 +1,4 @@
-import { mysqlTable, text, varchar, timestamp, int } from "drizzle-orm/mysql-core";
+import { mysqlTable, text, varchar, timestamp, int, boolean } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -8,7 +8,9 @@ export const users = mysqlTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull(),
   password: text("password").notNull(),
-  role: text("role").notNull(), // 'student' | 'teacher'
+  role: text("role").notNull(), // 'student' | 'teacher' | 'admin'
+  profileImage: text("profile_image"),
+  isBlocked: boolean("is_blocked").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -16,7 +18,7 @@ export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   name: z.string().min(1, "Name is required"),
-  role: z.enum(["student", "teacher"], { required_error: "Role must be either student or teacher" }),
+  role: z.enum(["student", "teacher", "admin"], { required_error: "Role must be either student, teacher, or admin" }),
 }).omit({
   id: true,
   createdAt: true,
@@ -40,6 +42,7 @@ export const courses = mysqlTable("courses", {
   // Add YouTube link and chapters fields
   youtubeLink: text("youtube_link"),
   chapters: text("chapters"), // JSON string of chapters
+  isArchived: boolean("is_archived").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -61,6 +64,7 @@ export const updateCourseSchema = createInsertSchema(courses, {
   duration: z.string().min(1, "Duration is required").optional(),
   youtubeLink: z.string().optional().nullable(),
   chapters: z.string().optional().nullable(),
+  isArchived: z.boolean().optional(),
 }).omit({
   id: true,
   teacherId: true,
@@ -95,6 +99,10 @@ export const assignments = mysqlTable("assignments", {
   description: text("description").notNull(),
   dueDate: timestamp("due_date").notNull(),
   maxScore: int("max_score").notNull().default(100),
+  // Notification flags
+  notified1Day: boolean("notified_1_day").default(false),
+  notified2Hours: boolean("notified_2_hours").default(false),
+  notified5Minutes: boolean("notified_5_minutes").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -195,6 +203,46 @@ export type InsertGrade = z.infer<typeof insertGradeSchema>;
 export type UpdateGrade = z.infer<typeof updateGradeSchema>;
 export type Grade = typeof grades.$inferSelect;
 
+// Messages table for chat functionality
+export const messages = mysqlTable("messages", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  senderId: varchar("sender_id", { length: 36 }).notNull(),
+  receiverId: varchar("receiver_id", { length: 36 }),
+  courseId: varchar("course_id", { length: 36 }),
+  content: text("content").notNull(),
+  // Add file attachment fields
+  fileUrl: text("file_url"),
+  fileName: text("file_name"),
+  fileType: text("file_type"),
+  fileSize: int("file_size"),
+  timestamp: timestamp("timestamp").defaultNow(),
+});
+
+export const insertMessageSchema = createInsertSchema(messages, {
+  content: z.string().min(1, "Message content is required"),
+  senderId: z.string().min(1, "Sender ID is required"),
+  receiverId: z.string().optional().nullable(),
+  courseId: z.string().optional().nullable(),
+  fileUrl: z.string().optional().nullable(),
+  fileName: z.string().optional().nullable(),
+  fileType: z.string().optional().nullable(),
+  fileSize: z.number().optional().nullable(),
+}).omit({
+  id: true,
+  timestamp: true,
+});
+
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type Message = typeof messages.$inferSelect;
+
+// Extended message type for API responses with file attachments
+export type MessageWithFile = Message & {
+  fileUrl?: string | null;
+  fileName?: string | null;
+  fileType?: string | null;
+  fileSize?: number | null;
+};
+
 // Extended types for API responses with joined data
 export type CourseWithTeacher = Course & {
   teacher: User;
@@ -224,4 +272,16 @@ export type Chapter = {
   title: string;
   youtubeId: string;
   duration: string;
+};
+
+// Syllabus item type for course materials
+export type SyllabusItem = {
+  id: string;
+  title: string;
+  description: string;
+  fileName?: string;
+  filePath?: string;
+  fileType?: string;
+  fileSize?: number;
+  createdAt: Date;
 };

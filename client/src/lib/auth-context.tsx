@@ -19,6 +19,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // Try to get current user from backend
       const currentUser = await apiRequest<User>("GET", "/api/auth/me");
+      
+      // Ensure profile image URLs are absolute if they're relative
+      if (currentUser && currentUser.profileImage) {
+        if (currentUser.profileImage.startsWith('/')) {
+          currentUser.profileImage = `${window.location.origin}${currentUser.profileImage}`;
+        }
+      }
+      
       setUser(currentUser);
     } catch (error: any) {
       // If there's an error (likely 401), clear user data
@@ -36,7 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      localStorage.setItem("user", JSON.stringify(user));
+      // Ensure profile image URLs are absolute if they're relative
+      const userToStore = { ...user };
+      if (userToStore.profileImage && userToStore.profileImage.startsWith('/')) {
+        userToStore.profileImage = `${window.location.origin}${userToStore.profileImage}`;
+      }
+      localStorage.setItem("user", JSON.stringify(userToStore));
     } else {
       localStorage.removeItem("user");
     }

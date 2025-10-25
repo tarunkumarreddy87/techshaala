@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth-context";
@@ -8,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { AssignmentCard } from "@/components/assignment-card";
 import { EmptyState } from "@/components/empty-state";
-import { ArrowLeft, BookOpen, Clock, User, FileText, Play } from "lucide-react";
-import type { CourseWithTeacher, Assignment, SubmissionWithDetails } from "@shared/schema";
+import { ArrowLeft, BookOpen, Clock, Users, FileText, Play, Download, MessageCircle } from "lucide-react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import type { CourseWithTeacher, AssignmentWithCourse, SubmissionWithDetails, Chapter, SyllabusItem, User } from "@shared/schema";
 
 export default function StudentCourseDetail() {
   const { user } = useAuth();
@@ -22,11 +24,16 @@ export default function StudentCourseDetail() {
     enabled: !!courseId,
   });
 
-  const { data: assignments, isLoading: assignmentsLoading } = useQuery<(Assignment & {
+  const { data: assignments, isLoading: assignmentsLoading } = useQuery<(AssignmentWithCourse & {
     submission?: SubmissionWithDetails;
   })[]>({
     queryKey: [`/api/courses/${courseId}/assignments-with-submissions`],
-    enabled: !!courseId && !!user?.id,
+    enabled: !!courseId,
+  });
+
+  const { data: syllabusItems, isLoading: syllabusLoading } = useQuery<SyllabusItem[]>({
+    queryKey: [`/api/courses/${courseId}/syllabus`],
+    enabled: !!courseId,
   });
 
   const getInitials = (name: string) => {
@@ -36,6 +43,22 @@ export default function StudentCourseDetail() {
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const extractYouTubeId = (url: string) => {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+    const match = url.match(regExp);
+    return (match && match[2].length === 11) ? match[2] : null;
+  };
+
+  const parseChapters = (chaptersStr: string | null | undefined): Chapter[] => {
+    if (!chaptersStr) return [];
+    try {
+      return JSON.parse(chaptersStr);
+    } catch (e) {
+      console.error("Error parsing chapters:", e);
+      return [];
+    }
   };
 
   if (courseLoading) {
@@ -62,6 +85,9 @@ export default function StudentCourseDetail() {
       </div>
     );
   }
+
+  const chapters = parseChapters(course.chapters);
+  const youtubeId = course.youtubeLink ? extractYouTubeId(course.youtubeLink) : null;
 
   return (
     <div className="p-6 space-y-6">
@@ -91,7 +117,7 @@ export default function StudentCourseDetail() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-6 text-sm">
+          <div className="flex flex-wrap items-center gap-6 text-sm">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span>{course.duration}</span>
@@ -103,69 +129,126 @@ export default function StudentCourseDetail() {
                 </AvatarFallback>
               </Avatar>
               <span>{course.teacher.name}</span>
+              {user && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="ml-2" 
+                  onClick={() => setLocation(`/student/course-chat/${courseId}`)}
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Course Chat
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="assignments" className="space-y-6">
+      <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>
+          <TabsTrigger value="overview" data-testid="tab-overview">
+            Overview
+          </TabsTrigger>
           <TabsTrigger value="assignments" data-testid="tab-assignments">
             Assignments
           </TabsTrigger>
-          <TabsTrigger value="learning" data-testid="tab-learning">
-            Learning
+          <TabsTrigger value="syllabus" data-testid="tab-syllabus">
+            Syllabus
+          </TabsTrigger>
+          <TabsTrigger value="discussion" className="flex items-center gap-2" data-testid="tab-discussion">
+            <MessageCircle className="h-4 w-4" />
+            Discussion
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="assignments" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-semibold">Course Assignments</h2>
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Course Video */}
+            {course.youtubeLink && (
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Play className="h-5 w-5" />
+                    Course Introduction
+                  </CardTitle>
+                  <CardDescription>
+                    Watch the introductory video for this course
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      src={`https://www.youtube.com/embed/${youtubeId}`}
+                      title="Course Video"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Chapters List */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Course Chapters</CardTitle>
+                <CardDescription>
+                  {chapters.length} chapters in this course
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {chapters.length > 0 ? (
+                  chapters.map((chapter) => (
+                    <div key={chapter.id} className="flex items-center justify-between p-3 rounded-lg border">
+                      <div>
+                        <div className="font-medium">{chapter.title}</div>
+                        <div className="text-sm text-muted-foreground">{chapter.duration}</div>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setLocation(`/student/learning/${courseId}`)}
+                      >
+                        View
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4 text-muted-foreground">
+                    No chapters available
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="assignments" className="space-y-6">
           {assignmentsLoading ? (
             <div className="space-y-4">
-              {[1, 2].map((i) => (
-                <Skeleton key={i} className="h-48 w-full" />
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-32 w-full" />
               ))}
             </div>
           ) : assignments && assignments.length > 0 ? (
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {assignments.map((assignment) => (
-                <AssignmentCard
-                  key={assignment.id}
-                  assignment={{
-                    ...assignment,
-                    course: course
-                  }}
-                  submission={assignment.submission}
+                <AssignmentCard 
+                  key={assignment.id} 
+                  assignment={assignment} 
                   actionButton={
-                    !assignment.submission ? (
-                      <Button
-                        className="w-full"
-                        onClick={() => setLocation(`/student/assignment/${assignment.id}`)}
-                        data-testid={`button-submit-assignment-${assignment.id}`}
-                      >
-                        Submit Assignment
-                      </Button>
-                    ) : assignment.submission?.grade ? (
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => setLocation(`/student/assignment/${assignment.id}`)}
-                        data-testid={`button-view-grade-${assignment.id}`}
-                      >
-                        View Grade & Feedback
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        disabled
-                        data-testid={`button-pending-${assignment.id}`}
-                      >
-                        Pending Grading
-                      </Button>
-                    )
+                    <Button 
+                      variant="default" 
+                      size="sm" 
+                      onClick={() => setLocation(`/student/assignment/${assignment.id}`)}
+                      className="w-full"
+                    >
+                      View Assignment
+                    </Button>
                   }
                 />
               ))}
@@ -173,37 +256,76 @@ export default function StudentCourseDetail() {
           ) : (
             <EmptyState
               icon={FileText}
-              title="No assignments yet"
-              description="Your teacher hasn't created any assignments for this course"
+              title="No assignments"
+              description="No assignments have been created for this course yet"
             />
           )}
         </TabsContent>
 
-        <TabsContent value="learning" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-2xl font-semibold">Course Learning Materials</h2>
-          </div>
+        <TabsContent value="syllabus" className="space-y-6">
+          {syllabusLoading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-24 w-full" />
+              ))}
+            </div>
+          ) : syllabusItems && syllabusItems.length > 0 ? (
+            <div className="space-y-4">
+              {syllabusItems.map((item) => (
+                <Card key={item.id}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      <span>{item.title}</span>
+                      {item.filePath && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => window.open(`/api/syllabus/${item.id}/file`, '_blank')}
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Download
+                        </Button>
+                      )}
+                    </CardTitle>
+                    <CardDescription>{item.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-sm text-muted-foreground">
+                      Uploaded on {new Date(item.createdAt).toLocaleDateString()}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              icon={FileText}
+              title="No syllabus items"
+              description="No syllabus items have been uploaded for this course yet"
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="discussion" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Play className="h-5 w-5" />
-                Video Learning
+                <MessageCircle className="h-5 w-5" />
+                Course Discussion
               </CardTitle>
               <CardDescription>
-                Access course content through video lectures and tutorials
+                Chat with your teacher and fellow students about this course
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-4">
-                <p className="text-muted-foreground">
-                  This course includes video lectures organized by chapters. Click below to start learning.
+              <div className="text-center py-8">
+                <MessageCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">Course Chat</h3>
+                <p className="text-muted-foreground mb-4">
+                  Join the conversation with your teacher and classmates in the course chat
                 </p>
-                <Button 
-                  className="w-full md:w-1/2"
-                  onClick={() => setLocation(`/student/learning/${courseId}`)}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Learning
+                <Button onClick={() => setLocation(`/student/course-chat/${courseId}`)}>
+                  Go to Course Chat
                 </Button>
               </div>
             </CardContent>
