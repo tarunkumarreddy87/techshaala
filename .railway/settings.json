@@ -1,0 +1,5 @@
+{
+  "project": "content-generosity-production.up.railway.app",
+  "service": "content-generosity-production",
+  "environment": "production"
+}
