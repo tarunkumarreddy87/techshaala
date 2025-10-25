@@ -15,9 +15,10 @@ import type { Message } from "@shared/schema";
 dotenv.config({ path: path.resolve(import.meta.dirname, '..', '.env') });
 
 const app = express();
-app.set('trust proxy', 1); // Required for Railway deployment
+// Trust proxy for Railway deployment
+app.set('trust proxy', 1);
 
-// Store connected clients with user info
+// Store connected clients with user info - moved to higher scope
 const clients = new Map<string, { socket: any, userId: string, courseId: string }>();
 
 // CORS middleware - Updated to properly handle credentials
@@ -80,10 +81,11 @@ const sessionConfig: session.SessionOptions = {
   resave: false,
   saveUninitialized: false,
   name: 'connect.sid', // Explicitly set session cookie name
+  proxy: true,
   cookie: {
     httpOnly: true,
-    secure: false, // Only secure in production
-    sameSite: 'lax', // Always use 'lax' for development
+    secure: process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
     maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
     path: '/',
   },
