@@ -1,6 +1,6 @@
 # Use Node.js 18 alpine image
 FROM node:18-alpine
-# Cache bust - updated vite.ts static serving
+# Build: $(date +%s)
 # Set working directory
 WORKDIR /app
 # Copy package files
