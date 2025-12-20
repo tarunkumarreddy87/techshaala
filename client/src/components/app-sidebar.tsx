@@ -34,7 +34,6 @@ export function AppSidebar() {
     { title: "My Courses", url: "/teacher/courses", icon: BookOpen },
     { title: "Assignments", url: "/teacher/assignments", icon: FileText },
     { title: "Course Chat", url: "/teacher/course-chat", icon: MessagesSquare },
-    { title: "AI Prompts", url: "/teacher/prompts", icon: Bot },
     { title: "Analytics", url: "/teacher/analytics", icon: BarChart3 },
     { title: "Profile", url: "/teacher/profile", icon: User },
   ];

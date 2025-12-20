@@ -35,7 +35,7 @@ export function CourseCard({ course, actionButton, onClick }: CourseCardProps) {
               {course.description}
             </CardDescription>
           </div>
-          <BookOpen className="h-5 w-5 text-primary flex-shrink-0" />
+          {!course.thumbnailUrl && <BookOpen className="h-5 w-5 text-primary flex-shrink-0" />}
         </div>
       </CardHeader>
       <CardContent>
