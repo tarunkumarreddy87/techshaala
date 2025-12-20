@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { Link, useLocation } from "wouter";
 import type { User } from "@shared/schema";
-import { Eye, EyeOff, Apple, Chrome, GraduationCap } from "lucide-react";
+import { Eye, EyeOff, GraduationCap } from "lucide-react";
 import { useState } from "react";
 
 export default function Register() {
@@ -196,38 +196,6 @@ export default function Register() {
               </Button>
             </form>
           </Form>
-
-          <div className="my-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-700"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400">
-                  Or continue with
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Button
-              variant="outline"
-              className="h-11 md:h-12 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              onClick={() => toast({ title: "Coming soon", description: "Apple login will be available soon" })}
-            >
-              <Apple className="h-5 w-5 mr-2" />
-              Apple
-            </Button>
-            <Button
-              variant="outline"
-              className="h-11 md:h-12 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-              onClick={() => toast({ title: "Coming soon", description: "Google login will be available soon" })}
-            >
-              <Chrome className="h-5 w-5 mr-2" />
-              Google
-            </Button>
-          </div>
 
           <div className="mt-6 md:mt-8 text-center text-sm">
             <span className="text-gray-600 dark:text-gray-400">Already have an account? </span>

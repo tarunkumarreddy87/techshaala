@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { BookOpen, FileText, Award, TrendingUp, CheckCircle, Circle, BrainCircuit, FileUp } from "lucide-react";
+import { BookOpen, FileText, Award, TrendingUp, CheckCircle, Circle, BrainCircuit } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { CourseCard } from "@/components/course-card";
 import { AssignmentCard } from "@/components/assignment-card";
@@ -74,10 +74,6 @@ export default function StudentDashboard() {
             <Button onClick={() => setLocation("/student/ai-chat")} className="gap-2">
                 <BrainCircuit className="h-4 w-4" />
                 AI Assistant
-            </Button>
-            <Button variant="outline" onClick={() => setLocation("/student/study-notes")} className="gap-2">
-                <FileUp className="h-4 w-4" />
-                Study Notes
             </Button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { Home, BookOpen, FileText, Award, LogOut, User, MessagesSquare, BarChart3, Bot, ListTodo } from "lucide-react";
+import { Home, BookOpen, FileText, Award, LogOut, User, MessagesSquare, BarChart3, Bot } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -24,7 +24,6 @@ export function AppSidebar() {
   const studentItems = [
     { title: "Dashboard", url: "/student/dashboard", icon: Home },
     { title: "My Courses", url: "/student/courses", icon: BookOpen },
-    { title: "My Tasks", url: "/student/tasks", icon: ListTodo },
     { title: "Assignments", url: "/student/assignments", icon: FileText },
     { title: "Course Chat", url: "/student/course-chat", icon: MessagesSquare },
     { title: "Profile", url: "/student/profile", icon: User },
