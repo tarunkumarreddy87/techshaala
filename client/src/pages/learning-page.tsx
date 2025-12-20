@@ -151,7 +151,7 @@ export default function LearningPage() {
 
   const saveNotes = () => {
     // In a real implementation, this would save to the backend
-    console.log("Saving notes:", notes);
+    // console.log("Saving notes:", notes);
   };
 
   // Filter chapters based on search term

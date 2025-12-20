@@ -45,7 +45,6 @@ export default function Discussion() {
   const handleCreatePost = () => {
     if (!newPost.trim()) return;
     // In a real app, you would send this to the backend
-    console.log("Creating post:", newPost);
     setNewPost("");
   };
 

@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { randomUUID } from "crypto";
-import type {
+import {
   User as SharedUser,
   InsertUser,
   Course as SharedCourse,
@@ -19,15 +19,58 @@ import type {
   EnrollmentWithCourse,
   AssignmentWithCourse,
   SubmissionWithDetails,
+  Group,
+  InsertGroup,
+  GroupMember,
+  InsertGroupMember,
+  Notification,
+  InsertNotification,
+  Task,
+  InsertTask,
+  StudyNote,
+  InsertStudyNote,
+  AiPrompt,
+  InsertAiPrompt
 } from "@shared/schema";
 
 // Define MongoDB schemas
+const mongoTaskSchema = new mongoose.Schema({
+  _id: { type: String, default: () => randomUUID() },
+  studentId: { type: String, required: true },
+  title: { type: String, required: true },
+  description: String,
+  isCompleted: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const mongoStudyNoteSchema = new mongoose.Schema({
+  _id: { type: String, default: () => randomUUID() },
+  studentId: { type: String, required: true },
+  title: { type: String, required: true },
+  originalFileName: { type: String, required: true },
+  filePath: { type: String, required: true },
+  fileSize: { type: Number, required: true },
+  summary: String,
+  createdAt: { type: Date, default: Date.now }
+});
+
+const mongoAiPromptSchema = new mongoose.Schema({
+  _id: { type: String, default: () => randomUUID() },
+  teacherId: { type: String, required: true },
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  subject: String,
+  createdAt: { type: Date, default: Date.now }
+});
+
 const mongoUserSchema = new mongoose.Schema({
   _id: { type: String, default: () => randomUUID() },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   role: { type: String, required: true, enum: ["student", "teacher", "admin"] },
+  profileImage: { type: String },
+  geminiApiKey: { type: String },
   isBlocked: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now }
 });
@@ -125,9 +168,115 @@ const MongoSubmission = mongoose.model("Submission", mongoSubmissionSchema);
 const MongoGrade = mongoose.model("Grade", mongoGradeSchema);
 const MongoMessage = mongoose.model("Message", mongoMessageSchema);
 const MongoSyllabus = mongoose.model("Syllabus", mongoSyllabusSchema);
+const MongoTask = mongoose.model("Task", mongoTaskSchema);
+const MongoStudyNote = mongoose.model("StudyNote", mongoStudyNoteSchema);
+const MongoAiPrompt = mongoose.model("AiPrompt", mongoAiPromptSchema);
+
+export interface IStorage {
+  getUser(id: string): Promise<SharedUser | undefined>;
+  getUserByEmail(email: string): Promise<SharedUser | undefined>;
+  getAllUsers(): Promise<SharedUser[]>;
+  createUser(user: InsertUser): Promise<SharedUser>;
+  updateUser(id: string, user: Partial<InsertUser>): Promise<SharedUser | undefined>;
+  deleteUser(id: string): Promise<boolean>;
+  getTeacherStudents(teacherId: string): Promise<SharedUser[]>;
+
+  // Course methods
+  getCourse(id: string): Promise<SharedCourse | undefined>;
+  getCourseWithTeacher(id: string): Promise<CourseWithTeacher | undefined>;
+  getAllCourses(): Promise<CourseWithTeacher[]>;
+  getCoursesByTeacher(teacherId: string): Promise<CourseWithTeacher[]>;
+  createCourse(course: InsertCourse): Promise<SharedCourse>;
+  updateCourse(id: string, course: Partial<InsertCourse>): Promise<SharedCourse | undefined>;
+
+  // Enrollment methods
+  getEnrollment(id: string): Promise<SharedEnrollment | undefined>;
+  getEnrollmentsByCourse(courseId: string): Promise<SharedEnrollment[]>;
+  getEnrollmentsByStudent(studentId: string): Promise<EnrollmentWithCourse[]>;
+  getStudentsByCourse(courseId: string): Promise<SharedUser[]>;
+  createEnrollment(enrollment: InsertEnrollment): Promise<SharedEnrollment>;
+  isStudentEnrolled(studentId: string, courseId: string): Promise<boolean>;
+
+  // Assignment methods
+  getAssignment(id: string): Promise<SharedAssignment | undefined>;
+  getAssignmentWithCourse(id: string): Promise<AssignmentWithCourse | undefined>;
+  getAllAssignments(): Promise<SharedAssignment[]>;
+  getAssignmentsByCourse(courseId: string): Promise<SharedAssignment[]>;
+  getAssignmentsByStudent(studentId: string): Promise<AssignmentWithCourse[]>;
+  createAssignment(assignment: InsertAssignment): Promise<SharedAssignment>;
+  updateAssignment(id: string, assignment: UpdateAssignment): Promise<SharedAssignment | undefined>;
+  getAssignmentsDueSoon(): Promise<SharedAssignment[]>;
+  updateAssignmentNotification(id: string, flag: 'notified1Day' | 'notified2Hours' | 'notified5Minutes'): Promise<SharedAssignment | undefined>;
+
+  // Submission methods
+  getSubmission(id: string): Promise<SharedSubmission | undefined>;
+  getSubmissionByAssignmentAndStudent(assignmentId: string, studentId: string): Promise<SubmissionWithDetails | undefined>;
+  getSubmissionsByAssignment(assignmentId: string): Promise<SubmissionWithDetails[]>;
+  createSubmission(submission: InsertSubmission): Promise<SharedSubmission>;
+
+  // Grade methods
+  getGrade(id: string): Promise<SharedGrade | undefined>;
+  getGradeBySubmission(submissionId: string): Promise<SharedGrade | undefined>;
+  createGrade(grade: InsertGrade): Promise<SharedGrade>;
+  updateGrade(id: string, grade: UpdateGrade): Promise<SharedGrade | undefined>;
+
+  // Stats methods
+  getTeacherStats(teacherId: string): Promise<{
+    totalStudents: number;
+    pendingSubmissions: number;
+    totalAssignments: number;
+  }>;
+  
+  // Message methods
+  getMessagesBetweenUsers(userId1: string, userId2: string): Promise<any[]>;
+  getMessagesByCourse(courseId: string): Promise<any[]>;
+  getMessagesByGroup(groupId: string): Promise<any[]>;
+  createMessage(messageData: any): Promise<any>;
+  
+  // Syllabus methods
+  createSyllabusItem(syllabusData: any): Promise<any>;
+  getSyllabusItemsByCourse(courseId: string): Promise<any[]>;
+  getSyllabusItemById(id: string): Promise<any>;
+
+  // Group methods
+  createGroup(groupData: InsertGroup & { createdBy: string }): Promise<Group>;
+  getGroup(id: string): Promise<Group | undefined>;
+  getGroupsByUser(userId: string): Promise<Group[]>;
+  getCourseGroups(courseId: string): Promise<Group[]>; // Add this method
+  
+  // Group Member methods
+  addGroupMember(memberData: InsertGroupMember): Promise<GroupMember>;
+  getGroupMembers(groupId: string): Promise<GroupMember[]>;
+  isGroupMember(groupId: string, userId: string): Promise<boolean>;
+
+  // Notification methods
+  createNotification(notificationData: InsertNotification & { userId: string }): Promise<Notification>;
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  markNotificationAsRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+
+  // Task methods
+  getTasksByStudent(studentId: string): Promise<Task[]>;
+  createTask(task: InsertTask & { studentId: string }): Promise<Task>;
+  updateTask(id: string, updates: Partial<Task>): Promise<Task | undefined>;
+  deleteTask(id: string): Promise<boolean>;
+
+  // Study Note methods
+  getStudyNotesByStudent(studentId: string): Promise<StudyNote[]>;
+  createStudyNote(note: InsertStudyNote & { studentId: string }): Promise<StudyNote>;
+  getStudyNote(id: string): Promise<StudyNote | undefined>;
+
+  // AI Prompt methods
+  getAiPromptsByTeacher(teacherId: string): Promise<AiPrompt[]>;
+  getAllAiPrompts(): Promise<AiPrompt[]>;
+  getAiPromptsBySubject(subject: string): Promise<AiPrompt[]>;
+  createAiPrompt(prompt: InsertAiPrompt & { teacherId: string }): Promise<AiPrompt>;
+  updateAiPrompt(id: string, updates: Partial<AiPrompt>): Promise<AiPrompt | undefined>;
+  deleteAiPrompt(id: string): Promise<boolean>;
+}
 
 // In-memory storage as fallback
-class MemStorage {
+class MemStorage implements IStorage {
   private users = new Map<string, any>();
   private courses = new Map<string, any>();
   private enrollments = new Map<string, any>();
@@ -135,6 +284,13 @@ class MemStorage {
   private submissions = new Map<string, any>();
   private grades = new Map<string, any>();
   private messages = new Map<string, any>();
+  private syllabusItems = new Map<string, any>();
+  private groups = new Map<string, any>();
+  private groupMembers = new Map<string, any>();
+  private notifications = new Map<string, any>();
+  private tasks = new Map<string, any>();
+  private studyNotes = new Map<string, any>();
+  private aiPrompts = new Map<string, any>();
 
   constructor() {
     // Initialize with some default data
@@ -232,8 +388,6 @@ class MemStorage {
     
     return Array.from(studentsMap.values());
   }
-  
-  private syllabusItems = new Map<string, any>();
   
   async createSyllabusItem(syllabusData: any): Promise<any> {
     const id = randomUUID();
@@ -622,6 +776,216 @@ class MemStorage {
       totalAssignments
     };
   }
+
+  async getStudentProgress(teacherId: string): Promise<{
+    studentId: string;
+    studentName: string;
+    enrolledCourses: number;
+    completedAssignments: number;
+    totalAssignments: number;
+    averageGrade: number;
+  }[]> {
+    const courses = Array.from(this.courses.values()).filter((c: any) => c.teacherId === teacherId);
+    const courseIds = courses.map((c: any) => c.id);
+    const studentMap = new Map<string, any>();
+    
+    for (const courseId of courseIds) {
+      const enrollments = Array.from(this.enrollments.values()).filter((e: any) => e.courseId === courseId);
+      for (const enrollment of enrollments) {
+        if (!studentMap.has(enrollment.studentId)) {
+          const student = this.users.get(enrollment.studentId);
+          if (student) {
+            studentMap.set(enrollment.studentId, {
+              studentId: student.id,
+              studentName: student.name,
+              enrolledCourses: 0,
+              completedAssignments: 0,
+              totalAssignments: 0,
+              totalGradePoints: 0,
+              gradedAssignments: 0
+            });
+          }
+        }
+        const stats = studentMap.get(enrollment.studentId);
+        if (stats) {
+          stats.enrolledCourses++;
+          const courseAssignments = Array.from(this.assignments.values()).filter((a: any) => a.courseId === courseId);
+          stats.totalAssignments += courseAssignments.length;
+          for (const assignment of courseAssignments) {
+            const submission = Array.from(this.submissions.values()).find((s: any) => 
+              s.assignmentId === assignment.id && s.studentId === enrollment.studentId
+            );
+            if (submission) {
+              stats.completedAssignments++;
+              const grade = Array.from(this.grades.values()).find((g: any) => g.submissionId === submission.id);
+              if (grade) {
+                stats.totalGradePoints += grade.score;
+                stats.gradedAssignments++;
+              }
+            }
+          }
+        }
+      }
+    }
+    return Array.from(studentMap.values()).map(stats => ({
+      studentId: stats.studentId,
+      studentName: stats.studentName,
+      enrolledCourses: stats.enrolledCourses,
+      completedAssignments: stats.completedAssignments,
+      totalAssignments: stats.totalAssignments,
+      averageGrade: stats.gradedAssignments > 0 ? Math.round(stats.totalGradePoints / stats.gradedAssignments) : 0
+    }));
+  }
+
+  // New methods for features
+  async getTasksByStudent(studentId: string): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter((t: any) => t.studentId === studentId);
+  }
+
+  async createTask(task: InsertTask & { studentId: string }): Promise<Task> {
+    const id = randomUUID();
+    const newTask = { ...task, id, isCompleted: false, createdAt: new Date() };
+    this.tasks.set(id, newTask);
+    return newTask as Task;
+  }
+
+  async updateTask(id: string, updates: Partial<Task>): Promise<Task | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    const updatedTask = { ...task, ...updates };
+    this.tasks.set(id, updatedTask);
+    return updatedTask as Task;
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    return this.tasks.delete(id);
+  }
+
+  async getStudyNotesByStudent(studentId: string): Promise<StudyNote[]> {
+    return Array.from(this.studyNotes.values()).filter((n: any) => n.studentId === studentId);
+  }
+
+  async createStudyNote(note: InsertStudyNote & { studentId: string }): Promise<StudyNote> {
+    const id = randomUUID();
+    const newNote = { ...note, id, createdAt: new Date() };
+    this.studyNotes.set(id, newNote);
+    return newNote as StudyNote;
+  }
+
+  async getStudyNote(id: string): Promise<StudyNote | undefined> {
+    return this.studyNotes.get(id);
+  }
+
+  async getAiPromptsByTeacher(teacherId: string): Promise<AiPrompt[]> {
+    return Array.from(this.aiPrompts.values()).filter((p: any) => p.teacherId === teacherId);
+  }
+
+  async getAllAiPrompts(): Promise<AiPrompt[]> {
+    return Array.from(this.aiPrompts.values());
+  }
+
+  async getAiPromptsBySubject(subject: string): Promise<AiPrompt[]> {
+    return Array.from(this.aiPrompts.values()).filter((p: any) => p.subject === subject);
+  }
+
+  async createAiPrompt(prompt: InsertAiPrompt & { teacherId: string }): Promise<AiPrompt> {
+    const id = randomUUID();
+    const newPrompt = { ...prompt, id, createdAt: new Date() };
+    this.aiPrompts.set(id, newPrompt);
+    return newPrompt as AiPrompt;
+  }
+
+  async updateAiPrompt(id: string, updates: Partial<AiPrompt>): Promise<AiPrompt | undefined> {
+    const prompt = this.aiPrompts.get(id);
+    if (!prompt) return undefined;
+    const updatedPrompt = { ...prompt, ...updates };
+    this.aiPrompts.set(id, updatedPrompt);
+    return updatedPrompt as AiPrompt;
+  }
+
+  async deleteAiPrompt(id: string): Promise<boolean> {
+    return this.aiPrompts.delete(id);
+  }
+
+  // --- End new methods ---
+  
+  // Existing methods for Groups and Notifications that might need to be implemented or ensured:
+  async getMessagesByGroup(groupId: string): Promise<any[]> {
+     return Array.from(this.messages.values()).filter((m: any) => m.groupId === groupId);
+  }
+
+  async createGroup(groupData: InsertGroup & { createdBy: string }): Promise<Group> {
+    const id = randomUUID();
+    const group = { ...groupData, id, createdAt: new Date() };
+    this.groups.set(id, group);
+    return group as Group;
+  }
+
+  async getGroup(id: string): Promise<Group | undefined> {
+    return this.groups.get(id);
+  }
+
+  async getGroupsByUser(userId: string): Promise<Group[]> {
+    const memberGroups = Array.from(this.groupMembers.values())
+      .filter((gm: any) => gm.userId === userId)
+      .map((gm: any) => gm.groupId);
+    
+    // Also include groups created by user? Typically yes, or they are members automatically.
+    // For now assuming membership is explicit.
+    return Array.from(this.groups.values()).filter((g: any) => memberGroups.includes(g.id));
+  }
+  
+  async getCourseGroups(courseId: string): Promise<Group[]> {
+    // Return empty for now as groups don't link to courses directly in current schema
+    return [];
+  }
+
+  async addGroupMember(memberData: InsertGroupMember): Promise<GroupMember> {
+    const id = randomUUID();
+    const member = { ...memberData, id, joinedAt: new Date() };
+    this.groupMembers.set(id, member);
+    return member as GroupMember;
+  }
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    return Array.from(this.groupMembers.values()).filter((gm: any) => gm.groupId === groupId);
+  }
+
+  async isGroupMember(groupId: string, userId: string): Promise<boolean> {
+    return Array.from(this.groupMembers.values()).some((gm: any) => gm.groupId === groupId && gm.userId === userId);
+  }
+
+  async createNotification(notificationData: InsertNotification & { userId: string }): Promise<Notification> {
+    const id = randomUUID();
+    const notification = { ...notificationData, id, isRead: false, createdAt: new Date() };
+    this.notifications.set(id, notification);
+    return notification as Notification;
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return Array.from(this.notifications.values()).filter((n: any) => n.userId === userId);
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+    const updated = { ...notification, isRead: true };
+    this.notifications.set(id, updated);
+    return updated as Notification;
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    for (const [id, notification] of this.notifications.entries()) {
+      if (notification.userId === userId && !notification.isRead) {
+        this.notifications.set(id, { ...notification, isRead: true });
+      }
+    }
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+      this.markNotificationAsRead(id);
+  }
+
 }
 
 export interface IStorage {
@@ -678,6 +1042,15 @@ export interface IStorage {
     pendingSubmissions: number;
     totalAssignments: number;
   }>;
+
+  getStudentProgress(teacherId: string): Promise<{
+    studentId: string;
+    studentName: string;
+    enrolledCourses: number;
+    completedAssignments: number;
+    totalAssignments: number;
+    averageGrade: number;
+  }[]>;
   
   // Additional methods that are used in routes but missing from interface
   getTeacherStudents(teacherId: string): Promise<any[]>;
@@ -687,6 +1060,19 @@ export interface IStorage {
   getMessagesBetweenUsers(userId1: string, userId2: string): Promise<any[]>;
   getMessagesByCourse(courseId: string): Promise<any[]>;
   createMessage(messageData: any): Promise<any>;
+
+  // New Group methods
+  createGroup(group: InsertGroup & { createdBy: string }): Promise<Group>;
+  getGroup(id: string): Promise<Group | undefined>;
+  getGroupsByUser(userId: string): Promise<Group[]>;
+  addGroupMember(member: InsertGroupMember): Promise<GroupMember>;
+  getGroupMembers(groupId: string): Promise<GroupMember[]>;
+  getMessagesByGroup(groupId: string): Promise<any[]>;
+
+  // Notification methods
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getNotificationsByUser(userId: string): Promise<Notification[]>;
+  markNotificationRead(id: string): Promise<void>;
 }
 
 export class MongoDBStorage implements IStorage {
@@ -1631,6 +2017,333 @@ export class MongoDBStorage implements IStorage {
       return this.fallbackStorage.getTeacherStats(teacherId);
     }
   }
+
+  async getStudentProgress(teacherId: string): Promise<{
+    studentId: string;
+    studentName: string;
+    enrolledCourses: number;
+    completedAssignments: number;
+    totalAssignments: number;
+    averageGrade: number;
+  }[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      
+      const courses = await MongoCourse.find({ teacherId }).lean();
+      const courseIds = courses.map(c => c._id.toString());
+      
+      if (courseIds.length === 0) return [];
+
+      const enrollments = await MongoEnrollment.find({ courseId: { $in: courseIds } }).lean();
+      const assignments = await MongoAssignment.find({ courseId: { $in: courseIds } }).lean();
+      
+      const studentMap = new Map<string, any>();
+      
+      for (const enrollment of enrollments) {
+        if (!studentMap.has(enrollment.studentId)) {
+          const student = await this.getUser(enrollment.studentId);
+          if (student) {
+            studentMap.set(enrollment.studentId, {
+              studentId: student.id,
+              studentName: student.name,
+              enrolledCourses: 0,
+              completedAssignments: 0,
+              totalAssignments: 0,
+              totalGradePoints: 0,
+              gradedAssignments: 0
+            });
+          }
+        }
+        
+        const stats = studentMap.get(enrollment.studentId);
+        if (stats) {
+          stats.enrolledCourses++;
+          
+          // Count assignments for this specific course
+          const courseAssignments = assignments.filter(a => a.courseId === enrollment.courseId);
+          stats.totalAssignments += courseAssignments.length;
+          
+          const courseAssignmentIds = courseAssignments.map(a => a._id.toString());
+          if (courseAssignmentIds.length > 0) {
+            const submissions = await MongoSubmission.find({ 
+              assignmentId: { $in: courseAssignmentIds },
+              studentId: enrollment.studentId
+            }).lean();
+            
+            stats.completedAssignments += submissions.length;
+            
+            const submissionIds = submissions.map(s => s._id.toString());
+            if (submissionIds.length > 0) {
+              const grades = await MongoGrade.find({ submissionId: { $in: submissionIds } }).lean();
+              for (const grade of grades) {
+                stats.totalGradePoints += grade.score;
+                stats.gradedAssignments++;
+              }
+            }
+          }
+        }
+      }
+      
+      return Array.from(studentMap.values()).map(stats => ({
+        studentId: stats.studentId,
+        studentName: stats.studentName,
+        enrolledCourses: stats.enrolledCourses,
+        completedAssignments: stats.completedAssignments,
+        totalAssignments: stats.totalAssignments,
+        averageGrade: stats.gradedAssignments > 0 ? Math.round(stats.totalGradePoints / stats.gradedAssignments) : 0
+      }));
+      
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getStudentProgress(teacherId);
+    }
+  }
+
+  // Group methods (Fallback to in-memory)
+  async createGroup(insertGroup: InsertGroup & { createdBy: string }): Promise<Group> {
+    return this.fallbackStorage.createGroup(insertGroup);
+  }
+
+  async getGroup(id: string): Promise<Group | undefined> {
+    return this.fallbackStorage.getGroup(id);
+  }
+
+  async getGroupsByUser(userId: string): Promise<Group[]> {
+    return this.fallbackStorage.getGroupsByUser(userId);
+  }
+
+  async getCourseGroups(courseId: string): Promise<Group[]> {
+    return this.fallbackStorage.getCourseGroups(courseId);
+  }
+
+  async addGroupMember(insertMember: InsertGroupMember): Promise<GroupMember> {
+    return this.fallbackStorage.addGroupMember(insertMember);
+  }
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    return this.fallbackStorage.getGroupMembers(groupId);
+  }
+
+  async isGroupMember(groupId: string, userId: string): Promise<boolean> {
+    return this.fallbackStorage.isGroupMember(groupId, userId);
+  }
+
+  async getMessagesByGroup(groupId: string): Promise<any[]> {
+    return this.fallbackStorage.getMessagesByGroup(groupId);
+  }
+
+  // Notification methods (Fallback to in-memory)
+  async createNotification(insertNotification: InsertNotification & { userId: string }): Promise<Notification> {
+    return this.fallbackStorage.createNotification(insertNotification);
+  }
+
+  async getNotificationsByUser(userId: string): Promise<Notification[]> {
+    return this.fallbackStorage.getNotificationsByUser(userId);
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification | undefined> {
+    return this.fallbackStorage.markNotificationAsRead(id);
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    return this.fallbackStorage.markAllNotificationsAsRead(userId);
+  }
+
+  async markNotificationRead(id: string): Promise<void> {
+    return this.fallbackStorage.markNotificationRead(id);
+  }
+
+  // Task methods
+  async getTasksByStudent(studentId: string): Promise<Task[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const tasks = await MongoTask.find({ studentId }).lean();
+      return tasks.map(task => {
+        const { _id, ...rest } = task;
+        return { id: _id, ...rest } as unknown as Task;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getTasksByStudent(studentId);
+    }
+  }
+
+  async createTask(task: InsertTask & { studentId: string }): Promise<Task> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const taskDoc = new MongoTask(task);
+      const savedTask = await taskDoc.save();
+      const taskObject = savedTask.toObject();
+      const { _id, ...rest } = taskObject;
+      return { id: _id, ...rest } as unknown as Task;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.createTask(task);
+    }
+  }
+
+  async updateTask(id: string, updates: Partial<Task>): Promise<Task | undefined> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const updatedTask = await MongoTask.findByIdAndUpdate(
+        id,
+        updates,
+        { new: true }
+      ).lean();
+      
+      if (updatedTask) {
+        const { _id, ...rest } = updatedTask;
+        return { id: _id, ...rest } as unknown as Task;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.updateTask(id, updates);
+    }
+  }
+
+  async deleteTask(id: string): Promise<boolean> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const result = await MongoTask.findByIdAndDelete(id);
+      return result != null;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.deleteTask(id);
+    }
+  }
+
+  // Study Note methods
+  async getStudyNotesByStudent(studentId: string): Promise<StudyNote[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const notes = await MongoStudyNote.find({ studentId }).sort({ createdAt: -1 }).lean();
+      return notes.map(note => {
+        const { _id, ...rest } = note;
+        return { id: _id, ...rest } as unknown as StudyNote;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getStudyNotesByStudent(studentId);
+    }
+  }
+
+  async createStudyNote(note: InsertStudyNote & { studentId: string }): Promise<StudyNote> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const noteDoc = new MongoStudyNote(note);
+      const savedNote = await noteDoc.save();
+      const noteObject = savedNote.toObject();
+      const { _id, ...rest } = noteObject;
+      return { id: _id, ...rest } as unknown as StudyNote;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.createStudyNote(note);
+    }
+  }
+
+  async getStudyNote(id: string): Promise<StudyNote | undefined> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const note = await MongoStudyNote.findById(id).lean();
+      if (note) {
+        const { _id, ...rest } = note;
+        return { id: _id, ...rest } as unknown as StudyNote;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getStudyNote(id);
+    }
+  }
+
+  // AI Prompt methods
+  async getAiPromptsByTeacher(teacherId: string): Promise<AiPrompt[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const prompts = await MongoAiPrompt.find({ teacherId }).lean();
+      return prompts.map(prompt => {
+        const { _id, ...rest } = prompt;
+        return { id: _id, ...rest } as unknown as AiPrompt;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAiPromptsByTeacher(teacherId);
+    }
+  }
+
+  async getAllAiPrompts(): Promise<AiPrompt[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const prompts = await MongoAiPrompt.find({}).lean();
+      return prompts.map(prompt => {
+        const { _id, ...rest } = prompt;
+        return { id: _id, ...rest } as unknown as AiPrompt;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAllAiPrompts();
+    }
+  }
+
+  async getAiPromptsBySubject(subject: string): Promise<AiPrompt[]> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const prompts = await MongoAiPrompt.find({ subject }).lean();
+      return prompts.map(prompt => {
+        const { _id, ...rest } = prompt;
+        return { id: _id, ...rest } as unknown as AiPrompt;
+      });
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.getAiPromptsBySubject(subject);
+    }
+  }
+
+  async createAiPrompt(prompt: InsertAiPrompt & { teacherId: string }): Promise<AiPrompt> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const promptDoc = new MongoAiPrompt(prompt);
+      const savedPrompt = await promptDoc.save();
+      const promptObject = savedPrompt.toObject();
+      const { _id, ...rest } = promptObject;
+      return { id: _id, ...rest } as unknown as AiPrompt;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.createAiPrompt(prompt);
+    }
+  }
+
+  async updateAiPrompt(id: string, updates: Partial<AiPrompt>): Promise<AiPrompt | undefined> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const updatedPrompt = await MongoAiPrompt.findByIdAndUpdate(
+        id,
+        updates,
+        { new: true }
+      ).lean();
+      
+      if (updatedPrompt) {
+        const { _id, ...rest } = updatedPrompt;
+        return { id: _id, ...rest } as unknown as AiPrompt;
+      }
+      return undefined;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.updateAiPrompt(id, updates);
+    }
+  }
+
+  async deleteAiPrompt(id: string): Promise<boolean> {
+    try {
+      if (!this.isConnected) throw new Error('Database not connected');
+      const result = await MongoAiPrompt.findByIdAndDelete(id);
+      return result != null;
+    } catch (error) {
+      console.error('MongoDB error, falling back to in-memory storage:', error);
+      return this.fallbackStorage.deleteAiPrompt(id);
+    }
+  }
 }
 
 let storageInstance: MongoDBStorage | null = null;
@@ -1787,5 +2500,80 @@ export const storage = {
   },
   createMessage: async (messageData: any) => {
     return getStorage().createMessage(messageData);
+  },
+  // Group methods
+  createGroup: async (insertGroup: InsertGroup & { createdBy: string }) => {
+    return getStorage().createGroup(insertGroup);
+  },
+  getGroup: async (id: string) => {
+    return getStorage().getGroup(id);
+  },
+  getGroupsByUser: async (userId: string) => {
+    return getStorage().getGroupsByUser(userId);
+  },
+  addGroupMember: async (insertMember: InsertGroupMember) => {
+    return getStorage().addGroupMember(insertMember);
+  },
+  getGroupMembers: async (groupId: string) => {
+    return getStorage().getGroupMembers(groupId);
+  },
+  getMessagesByGroup: async (groupId: string) => {
+    return getStorage().getMessagesByGroup(groupId);
+  },
+  // Notification methods
+  createNotification: async (insertNotification: InsertNotification & { userId: string }) => {
+    return getStorage().createNotification(insertNotification);
+  },
+  getNotificationsByUser: async (userId: string) => {
+    return getStorage().getNotificationsByUser(userId);
+  },
+  markNotificationRead: async (id: string) => {
+    return getStorage().markNotificationRead(id);
+  },
+  // Task methods
+  getTasksByStudent: async (studentId: string) => {
+    return getStorage().getTasksByStudent(studentId);
+  },
+  createTask: async (task: InsertTask & { studentId: string }) => {
+    return getStorage().createTask(task);
+  },
+  updateTask: async (id: string, updates: Partial<Task>) => {
+    return getStorage().updateTask(id, updates);
+  },
+  deleteTask: async (id: string) => {
+    return getStorage().deleteTask(id);
+  },
+  // Study Note methods
+  getStudyNotesByStudent: async (studentId: string) => {
+    return getStorage().getStudyNotesByStudent(studentId);
+  },
+  createStudyNote: async (note: InsertStudyNote & { studentId: string }) => {
+    return getStorage().createStudyNote(note);
+  },
+  getStudyNote: async (id: string) => {
+    return getStorage().getStudyNote(id);
+  },
+  // AI Prompt methods
+  getAiPromptsByTeacher: async (teacherId: string) => {
+    return getStorage().getAiPromptsByTeacher(teacherId);
+  },
+  getAllAiPrompts: async () => {
+    return getStorage().getAllAiPrompts();
+  },
+  getAiPromptsBySubject: async (subject: string) => {
+    return getStorage().getAiPromptsBySubject(subject);
+  },
+  createAiPrompt: async (prompt: InsertAiPrompt & { teacherId: string }) => {
+    return getStorage().createAiPrompt(prompt);
+  },
+  updateAiPrompt: async (id: string, updates: Partial<AiPrompt>) => {
+    return getStorage().updateAiPrompt(id, updates);
+  },
+  deleteAiPrompt: async (id: string) => {
+    return getStorage().deleteAiPrompt(id);
+  },
+  // Progress methods
+  getStudentProgress: async (teacherId: string) => {
+    return getStorage().getStudentProgress(teacherId);
   }
 };

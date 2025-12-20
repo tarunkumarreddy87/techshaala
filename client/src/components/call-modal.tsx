@@ -41,7 +41,6 @@ export function CallModal({
   useEffect(() => {
     // This would be implemented when we have remote streams
     // For now, we'll just log the participants
-    console.log('Participants:', participants);
   }, [participants]);
 
   if (!isOpen) return null;

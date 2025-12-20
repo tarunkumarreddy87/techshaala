@@ -16,20 +16,16 @@ export default function AdminUserDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  console.log("AdminUserDetail component rendered with ID:", id);
-
   // Fetch user data
   const { data, isLoading, isError, error: queryError } = useQuery<UserType>({
     queryKey: [`/api/admin/users/${id}`],
     queryFn: () => {
-      console.log("Making API request to:", `/api/admin/users/${id}`);
       return apiRequest("GET", `/api/admin/users/${id}`);
     },
     enabled: !!id,
   });
 
   useEffect(() => {
-    console.log("Data effect triggered:", data);
     if (data) {
       setUser(data);
       setLoading(false);
@@ -37,7 +33,6 @@ export default function AdminUserDetail() {
   }, [data]);
 
   useEffect(() => {
-    console.log("Error effect triggered:", isError, queryError);
     if (isError) {
       setError(queryError?.message || "Failed to load user data");
       setLoading(false);

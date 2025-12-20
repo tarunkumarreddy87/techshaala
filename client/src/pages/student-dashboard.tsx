@@ -1,14 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth-context";
-import { BookOpen, FileText, Award, TrendingUp } from "lucide-react";
+import { BookOpen, FileText, Award, TrendingUp, CheckCircle, Circle, BrainCircuit, FileUp } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { CourseCard } from "@/components/course-card";
 import { AssignmentCard } from "@/components/assignment-card";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useLocation } from "wouter";
-import type { EnrollmentWithCourse, AssignmentWithCourse, SubmissionWithDetails } from "@shared/schema";
+import { queryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
+import type { EnrollmentWithCourse, AssignmentWithCourse, SubmissionWithDetails, Task } from "@shared/schema";
 
 export default function StudentDashboard() {
   const { user } = useAuth();
@@ -26,6 +31,21 @@ export default function StudentDashboard() {
     enabled: !!user?.id,
   });
 
+  const { data: tasks, isLoading: tasksLoading } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    enabled: !!user?.id,
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ id, isCompleted }: { id: string; isCompleted: boolean }) => {
+      const res = await apiRequest("PATCH", `/api/tasks/${id}`, { isCompleted });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+    },
+  });
+
   const enrolledCoursesCount = enrollments?.length || 0;
   const pendingAssignments = assignments?.filter(a => !a.submission).length || 0;
   const completedAssignments = assignments?.filter(a => a.submission).length || 0;
@@ -39,11 +59,27 @@ export default function StudentDashboard() {
       }, 0) / (assignments.filter(a => a.submission?.grade).length || 1)
     : 0;
 
+  const totalTasks = tasks?.length || 0;
+  const completedTasksCount = tasks?.filter(t => t.isCompleted).length || 0;
+  const taskProgress = totalTasks > 0 ? (completedTasksCount / totalTasks) * 100 : 0;
+
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user?.name}!</h1>
-        <p className="text-muted-foreground mt-1">Track your learning progress and upcoming assignments</p>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user?.name}!</h1>
+          <p className="text-muted-foreground mt-1">Track your learning progress and upcoming assignments</p>
+        </div>
+        <div className="flex gap-2">
+            <Button onClick={() => setLocation("/student/ai-chat")} className="gap-2">
+                <BrainCircuit className="h-4 w-4" />
+                AI Assistant
+            </Button>
+            <Button variant="outline" onClick={() => setLocation("/student/study-notes")} className="gap-2">
+                <FileUp className="h-4 w-4" />
+                Study Notes
+            </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -72,6 +108,61 @@ export default function StudentDashboard() {
           description="Overall performance"
         />
       </div>
+
+      {/* Task Progress Section */}
+      <Card>
+        <CardHeader>
+            <CardTitle className="flex justify-between items-center">
+                <span>Task Progress</span>
+                <span className="text-sm font-normal text-muted-foreground">{completedTasksCount}/{totalTasks} Completed</span>
+            </CardTitle>
+        </CardHeader>
+        <CardContent>
+            <Progress value={taskProgress} className="h-2 mb-4" />
+            {tasksLoading ? (
+                <Skeleton className="h-20 w-full" />
+            ) : tasks && tasks.length > 0 ? (
+                <div className="space-y-2">
+                    {tasks.map((task) => (
+                        <div key={task.id} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50">
+                            <Checkbox 
+                                id={task.id} 
+                                checked={task.isCompleted || false}
+                                onCheckedChange={(checked) => updateTaskMutation.mutate({ id: task.id, isCompleted: checked as boolean })}
+                            />
+                            <label
+                                htmlFor={task.id}
+                                className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 ${task.isCompleted ? 'line-through text-muted-foreground' : ''}`}
+                            >
+                                {task.title}
+                            </label>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                    <p>No tasks yet. Create one to get started!</p>
+                    <Button variant="link" onClick={() => {
+                        // For demo purposes, create some default tasks if none exist
+                        const defaultTasks = [
+                            "Complete Profile Setup",
+                            "Review Course Syllabus", 
+                            "Submit First Assignment",
+                            "Join Course Group Chat",
+                            "Upload Study Notes",
+                            "Try AI Chat Assistant",
+                            "Check Grades"
+                        ];
+                        // We would typically have a proper UI for this, but for the "7 tasks" requirement:
+                        Promise.all(defaultTasks.map(title => apiRequest("POST", "/api/tasks", { title })))
+                            .then(() => queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }));
+                    }}>
+                        Initialize Default Tasks
+                    </Button>
+                </div>
+            )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>

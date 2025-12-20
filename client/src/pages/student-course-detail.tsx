@@ -291,7 +291,7 @@ export default function StudentCourseDetail() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-sm text-muted-foreground">
-                      Uploaded on {new Date(item.createdAt).toLocaleDateString()}
+                      Uploaded on {new Date(item.createdAt || new Date()).toLocaleDateString()}
                     </div>
                   </CardContent>
                 </Card>

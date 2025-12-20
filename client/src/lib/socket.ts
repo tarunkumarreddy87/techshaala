@@ -22,13 +22,13 @@ class SocketClient {
       }
 
       // Connect to the Socket.IO server
-      this.socket = io("http://localhost:3001", {
+      this.socket = io(window.location.origin, {
         withCredentials: true,
-        transports: ["websocket", "polling"],
+        transports: ["polling", "websocket"],
       });
 
       this.socket.on("connect", () => {
-        console.log("Socket.IO connected:", this.socket?.id);
+        // console.log("Socket.IO connected:", this.socket?.id);
         resolve();
       });
 
@@ -38,7 +38,7 @@ class SocketClient {
       });
 
       this.socket.on("disconnect", () => {
-        console.log("Socket.IO disconnected");
+        // console.log("Socket.IO disconnected");
       });
 
       // Forward all events to registered listeners

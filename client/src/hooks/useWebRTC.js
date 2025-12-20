@@ -23,7 +23,9 @@ export const useWebRTC = (courseId, userId, userName) => {
 
   // Initialize socket connection
   useEffect(() => {
-    socketRef.current = io('http://localhost:3001');
+    socketRef.current = io(window.location.origin, {
+      transports: ["polling", "websocket"],
+    });
     
     socketRef.current.on('user-joined', handleUserJoined);
     socketRef.current.on('existing-participants', handleExistingParticipants);
@@ -53,7 +55,6 @@ export const useWebRTC = (courseId, userId, userName) => {
 
     // Handle incoming remote stream
     peerConnection.ontrack = (event) => {
-      console.log('Received remote stream from:', peerId);
       setPeers(prev => ({
         ...prev,
         [peerId]: event.streams[0]
@@ -73,7 +74,6 @@ export const useWebRTC = (courseId, userId, userName) => {
 
     // Handle connection state changes
     peerConnection.onconnectionstatechange = () => {
-      console.log('Connection state:', peerConnection.connectionState);
       if (peerConnection.connectionState === 'disconnected' || 
           peerConnection.connectionState === 'failed') {
         handleUserLeft({ socketId: peerId });
@@ -85,8 +85,6 @@ export const useWebRTC = (courseId, userId, userName) => {
   }, [localStream, courseId]);
 
   const handleUserJoined = async ({ userId: remoteUserId, userName: remoteUserName, callType: remoteCallType, socketId }) => {
-    console.log('User joined:', remoteUserName, socketId);
-    
     const peerConnection = createPeerConnection(socketId);
     
     try {
@@ -104,13 +102,10 @@ export const useWebRTC = (courseId, userId, userName) => {
   };
 
   const handleExistingParticipants = (participants) => {
-    console.log('Existing participants:', participants);
     // Existing participants will send offers to the new user
   };
 
   const handleCallOffer = async ({ offer, from }) => {
-    console.log('Received offer from:', from);
-    
     const peerConnection = createPeerConnection(from);
     
     try {
@@ -129,8 +124,6 @@ export const useWebRTC = (courseId, userId, userName) => {
   };
 
   const handleCallAnswer = async ({ answer, from }) => {
-    console.log('Received answer from:', from);
-    
     const peerConnection = peerConnections.current[from];
     if (peerConnection) {
       try {
@@ -153,8 +146,6 @@ export const useWebRTC = (courseId, userId, userName) => {
   };
 
   const handleUserLeft = ({ socketId }) => {
-    console.log('User left:', socketId);
-    
     if (peerConnections.current[socketId]) {
       peerConnections.current[socketId].close();
       delete peerConnections.current[socketId];
@@ -168,12 +159,10 @@ export const useWebRTC = (courseId, userId, userName) => {
   };
 
   const handleUserAudioToggle = ({ socketId, enabled }) => {
-    console.log(`User ${socketId} audio:`, enabled);
     // Update UI to show mute status
   };
 
   const handleUserVideoToggle = ({ socketId, enabled }) => {
-    console.log(`User ${socketId} video:`, enabled);
     // Update UI to show video off status
   };
 

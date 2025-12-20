@@ -44,6 +44,7 @@ const clients = new Map<string, { socket: any, userId: string, courseId: string 
 app.use((req, res, next) => {
   // Allow requests from common Vite development ports
   const allowedOrigins = [
+    'http://localhost:3000',
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
@@ -51,6 +52,7 @@ app.use((req, res, next) => {
     'http://localhost:5177',
     'http://localhost:5178',
     'http://localhost:5179',
+    'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
     'http://127.0.0.1:5175',
@@ -186,7 +188,7 @@ async function startServer() {
     // In a production environment, you would want to exit here
   }
 
-  const server = await registerRoutes(app);
+  const httpServer = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
@@ -200,24 +202,15 @@ async function startServer() {
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (app.get("env") === "development") {
-    await setupVite(app, server);
+    await setupVite(app, httpServer);
   } else {
     serveStatic(app);
-  }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '3002', 10); // Changed to 3002 to avoid conflicts
-  
-  // Create HTTP server
-  const httpServer = createServer(app);
-  
+  }  
   // Setup Socket.IO server
   const io = new Server(httpServer, {
     cors: {
       origin: [
+        "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:5174",
         "http://localhost:5175",
@@ -225,6 +218,7 @@ async function startServer() {
         "http://localhost:5177",
         "http://localhost:5178",
         "http://localhost:5179",
+        "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
@@ -238,6 +232,16 @@ async function startServer() {
     }
   });
   
+  // ALWAYS serve the app on the port specified in the environment variable PORT
+  // Other ports are firewalled. Default to 5000 if not specified.
+  // this serves both the API and the client.
+  // It is the only port that is not firewalled.
+  const port = parseInt(process.env.PORT || '3000', 10);
+  
+  // Start the HTTP server after all setup is complete
+  httpServer.listen(port, () => {
+    log(`serving on port ${port}`);
+  });  
   // Handle Socket.IO connections
   io.on('connection', (socket: any) => {
     console.log('Socket.IO connection established', socket.id);
@@ -258,28 +262,74 @@ async function startServer() {
           if (sessionId && userId && courseId) {
             clients.set(sessionId, { socket, userId, courseId });
           }
+          
+          // Join user-specific room for direct messages and notifications
+          socket.join(`user_${userId}`);
+          return;
+        }
+
+        // Handle joining a group
+        if (data.type === 'JOIN_GROUP') {
+          const { groupId } = data;
+          if (groupId) {
+            socket.join(`group_${groupId}`);
+          }
+          return;
+        }
+
+        // Handle typing indicators
+        if (data.type === 'TYPING') {
+          const { groupId, receiverId, isTyping } = data;
+          if (groupId) {
+            socket.to(`group_${groupId}`).emit('typing_status', { userId: data.senderId, isTyping, groupId });
+          } else if (receiverId) {
+            socket.to(`user_${receiverId}`).emit('typing_status', { userId: data.senderId, isTyping });
+          } else if (data.courseId) {
+             // For course chat, broadcast to others in course
+             clients.forEach((clientInfo) => {
+               if (clientInfo.courseId === data.courseId && clientInfo.userId !== data.senderId) {
+                 clientInfo.socket.emit('typing_status', { userId: data.senderId, isTyping, courseId: data.courseId });
+               }
+             });
+          }
           return;
         }
         
         // Handle new notifications
         if (data.type === 'NEW_NOTIFICATION') {
           // Broadcast notification to relevant users
-          clients.forEach((clientInfo: { socket: any, userId: string, courseId: string }) => {
-            if (clientInfo.userId !== userId && clientInfo.socket.readyState === socket.OPEN) {
-              clientInfo.socket.emit('new_notification', data.notification);
-            }
-          });
+          // If specific user target
+          if (data.targetUserId) {
+             socket.to(`user_${data.targetUserId}`).emit('new_notification', data.notification);
+          } else {
+             // Fallback to existing broadcast if needed (though inefficient)
+             clients.forEach((clientInfo: { socket: any, userId: string, courseId: string }) => {
+                if (clientInfo.userId !== userId && clientInfo.socket.readyState === socket.OPEN) {
+                  clientInfo.socket.emit('new_notification', data.notification);
+                }
+              });
+          }
           return;
         }
         
         // Broadcast message to relevant users
         if (data.type === 'send_message') {
-          // Save message to database
+          // Determine message type (Group, Direct, or Course)
+          const isGroup = !!data.groupId;
+          const isDirect = !!data.receiverId;
+
           const messageData: any = {
             senderId: data.senderId,
-            courseId: data.courseId,
             content: data.content,
-            timestamp: new Date()
+            timestamp: new Date(),
+            fileUrl: data.fileUrl,
+            fileName: data.fileName,
+            fileType: data.fileType,
+            fileSize: data.fileSize,
+            // Optional fields
+            ...(data.courseId && { courseId: data.courseId }),
+            ...(data.groupId && { groupId: data.groupId }),
+            ...(data.receiverId && { receiverId: data.receiverId }),
           };
           
           const newMessage = await storage.createMessage(messageData);
@@ -291,12 +341,19 @@ async function startServer() {
             senderName: sender?.name || 'Unknown'
           };
           
-          // Broadcast to all clients in the same course
-          clients.forEach((clientInfo: { socket: any, userId: string, courseId: string }) => {
-            if (clientInfo.courseId === data.courseId && clientInfo.socket.readyState === socket.OPEN) {
-              clientInfo.socket.emit('receive_message', messageWithSender);
-              
-              // Send notification for new message
+          if (isGroup) {
+             io.to(`group_${data.groupId}`).emit('receive_message', messageWithSender);
+          } else if (isDirect) {
+             io.to(`user_${data.receiverId}`).emit('receive_message', messageWithSender);
+             // Also send back to sender (if they are on multiple devices, or just to confirm)
+             socket.emit('receive_message', messageWithSender); 
+          } else {
+            // Course Chat (Broadcast to all clients in the same course)
+            clients.forEach((clientInfo: { socket: any, userId: string, courseId: string }) => {
+                if (clientInfo.courseId === data.courseId && clientInfo.socket.readyState === socket.OPEN) {
+                clientInfo.socket.emit('receive_message', messageWithSender);
+                
+                // Send notification for new message
               if (clientInfo.userId !== data.senderId) {
                 clientInfo.socket.emit('new_notification', {
                   id: `msg-${newMessage.id}`,
@@ -311,6 +368,7 @@ async function startServer() {
             }
           });
         }
+      }
         
         // Handle private messages
         if (data.type === 'send_private_message') {
@@ -319,7 +377,11 @@ async function startServer() {
             senderId: data.senderId,
             receiverId: data.receiverId,
             content: data.content,
-            timestamp: new Date()
+            timestamp: new Date(),
+            fileUrl: data.fileUrl,
+            fileName: data.fileName,
+            fileType: data.fileType,
+            fileSize: data.fileSize
           };
           
           const newMessage = await storage.createMessage(messageData);

@@ -41,6 +41,12 @@ import TeacherAssignments from "@/pages/teacher-assignments";
 import TeacherStudents from "@/pages/teacher-students";
 import WhatsAppCourseChat from "@/pages/whatsapp-course-chat";
 
+import AiChat from "@/pages/ai-chat";
+import StudyNotes from "@/pages/study-notes";
+import StudentTasks from "@/pages/student-tasks";
+import TeacherPrompts from "@/pages/teacher-prompts";
+import TeacherAnalytics from "@/pages/teacher-analytics";
+
 function HomeRedirect() {
   const { user } = useAuth();
   
@@ -89,6 +95,21 @@ function Router() {
       <Route path="/student/dashboard">
         <ProtectedRoute requiredRole="student">
           <StudentDashboard />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/study-notes">
+        <ProtectedRoute requiredRole="student">
+          <StudyNotes />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/tasks">
+        <ProtectedRoute requiredRole="student">
+          <StudentTasks />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/student/ai-chat">
+        <ProtectedRoute requiredRole="student">
+          <AiChat />
         </ProtectedRoute>
       </Route>
       <Route path="/student/profile">
@@ -201,6 +222,16 @@ function Router() {
       <Route path="/teacher/students">
         <ProtectedRoute requiredRole="teacher">
           <TeacherStudents />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/prompts">
+        <ProtectedRoute requiredRole="teacher">
+          <TeacherPrompts />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/teacher/analytics">
+        <ProtectedRoute requiredRole="teacher">
+          <TeacherAnalytics />
         </ProtectedRoute>
       </Route>
 

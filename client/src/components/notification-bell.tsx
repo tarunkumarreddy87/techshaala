@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Bell, MessageCircle, Phone, Video } from "lucide-react";
+import { Bell, MessageCircle, Phone, Video, GraduationCap, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { 
   DropdownMenu, 
@@ -16,7 +16,7 @@ import SocketClient from "@/lib/socket";
 
 interface Notification {
   id: string;
-  type: "chat_message" | "call_invite" | "assignment_due";
+  type: "chat_message" | "call_invite" | "assignment_due" | "grade" | "course_chat";
   title: string;
   message: string;
   timestamp: string;
@@ -120,6 +120,10 @@ export function NotificationBell() {
         return <Phone className="h-4 w-4" />;
       case "assignment_due":
         return <Bell className="h-4 w-4" />;
+      case "grade":
+        return <GraduationCap className="h-4 w-4" />;
+      case "course_chat":
+        return <BookOpen className="h-4 w-4" />;
       default:
         return <Bell className="h-4 w-4" />;
     }

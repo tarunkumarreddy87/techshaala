@@ -11,7 +11,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { useLocation } from "wouter";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft, Upload, X } from "lucide-react";
 import { YouTubeChapters } from "@/components/youtube-chapters";
 import { useState } from "react";
 
@@ -20,6 +20,8 @@ export default function CreateCourse() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const form = useForm<InsertCourse>({
     resolver: zodResolver(insertCourseSchema),
@@ -33,6 +35,35 @@ export default function CreateCourse() {
     },
   });
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Thumbnail must be less than 5MB",
+          variant: "destructive",
+        });
+        e.target.value = '';
+        return;
+      }
+      setThumbnailFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const removeThumbnail = () => {
+    setThumbnailFile(null);
+    setPreviewUrl(null);
+    // Reset file input if exists (optional, as we control state)
+    const fileInput = document.getElementById('thumbnail-upload') as HTMLInputElement;
+    if (fileInput) fileInput.value = '';
+  };
+
   const createCourseMutation = useMutation({
     mutationFn: async (data: InsertCourse) => {
       // Add chapters to the data
@@ -40,7 +71,20 @@ export default function CreateCourse() {
         ...data,
         chapters: chapters.length > 0 ? JSON.stringify(chapters) : ""
       };
-      return await apiRequest("POST", "/api/courses", courseData);
+      const newCourse = await apiRequest("POST", "/api/courses", courseData);
+
+      // Upload thumbnail if selected
+      if (thumbnailFile && newCourse.id) {
+        const formData = new FormData();
+        formData.append("thumbnail", thumbnailFile);
+        
+        await fetch(`/api/courses/${newCourse.id}/thumbnail`, {
+          method: "POST",
+          body: formData,
+        });
+      }
+      
+      return newCourse;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/courses"] });
@@ -154,6 +198,49 @@ export default function CreateCourse() {
                   </FormItem>
                 )}
               />
+
+              <div className="space-y-2">
+                <FormLabel>Course Thumbnail</FormLabel>
+                <div className="flex flex-col gap-4">
+                  {previewUrl ? (
+                    <div className="relative w-full max-w-md aspect-video rounded-lg overflow-hidden border bg-muted">
+                      <img 
+                        src={previewUrl} 
+                        alt="Course thumbnail preview" 
+                        className="w-full h-full object-cover"
+                      />
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 h-8 w-8"
+                        onClick={removeThumbnail}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="relative w-full max-w-md aspect-video rounded-lg border-2 border-dashed border-muted-foreground/25 flex flex-col items-center justify-center gap-2 bg-muted/50 hover:bg-muted transition-colors">
+                      <Upload className="h-8 w-8 text-muted-foreground" />
+                      <div className="text-sm text-muted-foreground text-center">
+                        <span className="font-semibold text-primary">Click to upload</span> or drag and drop
+                        <br />
+                        SVG, PNG, JPG or GIF (max. 5MB)
+                      </div>
+                      <Input
+                        id="thumbnail-upload"
+                        type="file"
+                        accept="image/*"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={handleFileChange}
+                      />
+                    </div>
+                  )}
+                  <FormDescription>
+                    Upload a thumbnail image for your course card
+                  </FormDescription>
+                </div>
+              </div>
 
               <FormField
                 control={form.control}

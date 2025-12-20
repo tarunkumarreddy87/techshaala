@@ -1,0 +1,39 @@
+
+> rest-express@1.0.0 dev:backend
+> cross-env NODE_ENV=development tsx server/index.ts
+
+[dotenv@17.2.3] injecting env (2) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+Loaded .env file from: C:\Users\Tarun\Documents\mbuprojectlms\techshaala\.env
+Using MemoryStore (MONGO_URI not found)
+Session config: {
+  secret: '****',
+  resave: false,
+  saveUninitialized: false,
+  name: 'connect.sid',
+  cookie: {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax',
+    maxAge: 604800000,
+    path: '/'
+  }
+}
+MONGO_URI environment variable: Missing
+Failed to connect to MongoDB database: Error: MONGO_URI not found in environment variables. Please set the MONGO_URI environment variable with your MongoDB connection string.
+    at MongoDBStorage.connect (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\storage.ts:1102:15)
+    at Object.connect (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\storage.ts:2348:25)
+    at startServer (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\index.ts:180:19)
+    at <anonymous> (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\index.ts:763:1)
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:647:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+Falling back to in-memory storage for development
+8:42:00 PM [express] MongoDB connected successfully
+8:42:00 PM [express] serving on port 3000
+MongoDB error, falling back to in-memory storage: Error: Database not connected
+    at MongoDBStorage.getAllAssignments (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\storage.ts:1607:36)
+    at Object.getAllAssignments (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\storage.ts:2418:25)
+    at Timeout._onTimeout (C:\Users\Tarun\Documents\mbuprojectlms\techshaala\server\index.ts:579:41)
+    at listOnTimeout (node:internal/timers:588:17)
+    at process.processTimers (node:internal/timers:523:7)
+^C

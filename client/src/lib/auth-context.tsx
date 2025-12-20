@@ -30,7 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(currentUser);
     } catch (error: any) {
       // If there's an error (likely 401), clear user data
-      console.log("Auth check failed:", error.message);
+      // console.log("Auth check failed:", error.message);
       setUser(null);
       localStorage.removeItem("user");
     } finally {

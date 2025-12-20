@@ -42,6 +42,7 @@ export const courses = mysqlTable("courses", {
   // Add YouTube link and chapters fields
   youtubeLink: text("youtube_link"),
   chapters: text("chapters"), // JSON string of chapters
+  thumbnailUrl: text("thumbnail_url"), // Add thumbnail URL
   isArchived: boolean("is_archived").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -52,6 +53,7 @@ export const insertCourseSchema = createInsertSchema(courses, {
   duration: z.string().min(1, "Duration is required"),
   youtubeLink: z.string().optional().nullable(),
   chapters: z.string().optional().nullable(),
+  thumbnailUrl: z.string().optional().nullable(),
 }).omit({
   id: true,
   createdAt: true,
@@ -64,6 +66,7 @@ export const updateCourseSchema = createInsertSchema(courses, {
   duration: z.string().min(1, "Duration is required").optional(),
   youtubeLink: z.string().optional().nullable(),
   chapters: z.string().optional().nullable(),
+  thumbnailUrl: z.string().optional().nullable(),
   isArchived: z.boolean().optional(),
 }).omit({
   id: true,
@@ -209,6 +212,7 @@ export const messages = mysqlTable("messages", {
   senderId: varchar("sender_id", { length: 36 }).notNull(),
   receiverId: varchar("receiver_id", { length: 36 }),
   courseId: varchar("course_id", { length: 36 }),
+  groupId: varchar("group_id", { length: 36 }), // Add group ID
   content: text("content").notNull(),
   // Add file attachment fields
   fileUrl: text("file_url"),
@@ -223,6 +227,7 @@ export const insertMessageSchema = createInsertSchema(messages, {
   senderId: z.string().min(1, "Sender ID is required"),
   receiverId: z.string().optional().nullable(),
   courseId: z.string().optional().nullable(),
+  groupId: z.string().optional().nullable(),
   fileUrl: z.string().optional().nullable(),
   fileName: z.string().optional().nullable(),
   fileType: z.string().optional().nullable(),
@@ -234,6 +239,166 @@ export const insertMessageSchema = createInsertSchema(messages, {
 
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
+
+// Groups table
+export const groups = mysqlTable("groups", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  createdBy: varchar("created_by", { length: 36 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGroupSchema = createInsertSchema(groups, {
+  name: z.string().min(1, "Group name is required"),
+  description: z.string().optional(),
+}).omit({
+  id: true,
+  createdBy: true,
+  createdAt: true,
+});
+
+export type InsertGroup = z.infer<typeof insertGroupSchema>;
+export type Group = typeof groups.$inferSelect;
+
+// Group Members table
+export const groupMembers = mysqlTable("group_members", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  groupId: varchar("group_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  joinedAt: timestamp("joined_at").defaultNow(),
+});
+
+export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({
+  id: true,
+  joinedAt: true,
+});
+
+export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
+export type GroupMember = typeof groupMembers.$inferSelect;
+
+// Notifications table
+export const notifications = mysqlTable("notifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  type: text("type").notNull(), // 'assignment', 'message', 'grade', 'system'
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false),
+  link: text("link"), // URL to redirect to
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications, {
+  type: z.enum(["assignment", "message", "grade", "system"]),
+  title: z.string().min(1),
+  message: z.string().min(1),
+  link: z.string().optional(),
+}).omit({
+  id: true,
+  isRead: true,
+  createdAt: true,
+});
+
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type Notification = typeof notifications.$inferSelect;
+
+// Syllabus Items table
+export const syllabusItems = mysqlTable("syllabus_items", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  courseId: varchar("course_id", { length: 36 }).notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  // File upload fields
+  fileName: text("file_name"),
+  filePath: text("file_path"),
+  fileType: text("file_type"),
+  fileSize: int("file_size"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertSyllabusSchema = createInsertSchema(syllabusItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Schema for file upload
+export const insertSyllabusWithFileSchema = insertSyllabusSchema.extend({
+  file: z.any().optional(),
+});
+
+export type InsertSyllabus = z.infer<typeof insertSyllabusSchema>;
+export type SyllabusItem = typeof syllabusItems.$inferSelect;
+
+// --- New Features Schema ---
+
+// Tasks table (for student task management)
+export const tasks = mysqlTable("tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  studentId: varchar("student_id", { length: 36 }).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  isCompleted: boolean("is_completed").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTaskSchema = createInsertSchema(tasks, {
+  title: z.string().min(1, "Title is required"),
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type Task = typeof tasks.$inferSelect;
+
+// Study Notes (PDF Uploads & Summaries)
+export const studyNotes = mysqlTable("study_notes", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  studentId: varchar("student_id", { length: 36 }).notNull(),
+  title: text("title").notNull(),
+  originalFileName: text("original_file_name").notNull(),
+  filePath: text("file_path").notNull(),
+  fileSize: int("file_size").notNull(),
+  summary: text("summary"), // AI generated summary
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertStudyNoteSchema = createInsertSchema(studyNotes).omit({
+  id: true,
+  createdAt: true,
+  summary: true,
+});
+
+export type InsertStudyNote = z.infer<typeof insertStudyNoteSchema>;
+export type StudyNote = typeof studyNotes.$inferSelect;
+
+// AI Prompts (Teacher managed)
+export const aiPrompts = mysqlTable("ai_prompts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  teacherId: varchar("teacher_id", { length: 36 }).notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(), // The prompt template
+  subject: text("subject"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertAiPromptSchema = createInsertSchema(aiPrompts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const updateAiPromptSchema = createInsertSchema(aiPrompts).omit({
+  id: true,
+  createdAt: true,
+  teacherId: true,
+}).partial();
+
+export type InsertAiPrompt = z.infer<typeof insertAiPromptSchema>;
+export type UpdateAiPrompt = z.infer<typeof updateAiPromptSchema>;
+export type AiPrompt = typeof aiPrompts.$inferSelect;
+
+// --- End New Features Schema ---
 
 // Extended message type for API responses with file attachments
 export type MessageWithFile = Message & {
@@ -272,16 +437,4 @@ export type Chapter = {
   title: string;
   youtubeId: string;
   duration: string;
-};
-
-// Syllabus item type for course materials
-export type SyllabusItem = {
-  id: string;
-  title: string;
-  description: string;
-  fileName?: string;
-  filePath?: string;
-  fileType?: string;
-  fileSize?: number;
-  createdAt: Date;
 };

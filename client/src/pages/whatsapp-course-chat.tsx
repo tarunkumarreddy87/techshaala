@@ -6,7 +6,7 @@ import SocketClient from "@/lib/socket";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   Search, 
@@ -20,16 +20,27 @@ import {
   Mic, 
   ScreenShare, 
   FileText,
-  Image,
+  Image as ImageIcon,
   MicOff,
   Bell,
-  MessageCircle
+  MessageCircle,
+  Users,
+  Plus,
+  Loader2
 } from "lucide-react";
 import { VideoCallModal } from "@/components/video-call-modal";
 import { CallModal } from "@/components/call-modal";
-import type { MessageWithFile, User } from "@shared/schema";
+import type { MessageWithFile, User, Group } from "@shared/schema";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { NotificationBell } from "@/components/notification-bell";
+import { CreateGroupModal } from "@/components/chat/create-group-modal";
+import { format } from "date-fns";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
 
 interface Participant {
   id: string;
@@ -50,8 +61,12 @@ interface ChatMessage {
   senderName: string;
   courseId?: string;
   receiverId?: string;
+  groupId?: string;
   content: string;
   timestamp: string;
+  fileUrl?: string;
+  fileName?: string;
+  fileType?: string;
 }
 
 export default function WhatsAppCourseChat() {
@@ -63,30 +78,23 @@ export default function WhatsAppCourseChat() {
   const [isRecording, setIsRecording] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [activeChat, setActiveChat] = useState<"course" | "private">("course");
+  const [activeChat, setActiveChat] = useState<"course" | "private" | "group">("course");
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [isCalling, setIsCalling] = useState(false);
   const [callType, setCallType] = useState<'voice' | 'video' | null>(null);
   const [isSharingScreen, setIsSharingScreen] = useState(false);
   const [incomingCall, setIncomingCall] = useState<{callerId: string, callType: 'voice' | 'video'} | null>(null);
   const [isCallModalOpen, setIsCallModalOpen] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingUser, setTypingUser] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Refs for socket listeners
-  const receiveMessageListener = useRef<Function | null>(null);
-  const messageSentListener = useRef<Function | null>(null);
-  const receivePrivateMessageListener = useRef<Function | null>(null);
-  const privateMessageSentListener = useRef<Function | null>(null);
-  const callInviteListener = useRef<Function | null>(null);
-  const callAcceptListener = useRef<Function | null>(null);
-  const callDeclineListener = useRef<Function | null>(null);
-  const callEndListener = useRef<Function | null>(null);
-  const errorListener = useRef<Function | null>(null);
+  const socketRef = useRef<typeof SocketClient | null>(null);
 
   // Extract courseId from the location path
   const extractCourseId = () => {
@@ -129,12 +137,6 @@ export default function WhatsAppCourseChat() {
     endCall: () => {}
   };
 
-  // Debugging: log the location and extracted courseId
-  useEffect(() => {
-    console.log("Current location:", location);
-    console.log("Extracted courseId:", courseId);
-  }, [location, courseId]);
-
   // If courseId is not provided, show an error message
   if (!courseId) {
     return (
@@ -153,44 +155,37 @@ export default function WhatsAppCourseChat() {
   // Fetch course participants
   const { data: participants, isLoading: participantsLoading } = useQuery<ParticipantsData>({
     queryKey: [`/api/courses/${courseId}/participants`],
-    queryFn: async () => {
-      const response = await fetch(`/api/courses/${courseId}/participants`);
-      if (!response.ok) {
-        throw new Error("Failed to fetch participants");
-      }
-      return await response.json();
-    },
     enabled: !!courseId && !!user
+  });
+
+  // Fetch groups
+  const { data: groups = [], isLoading: groupsLoading } = useQuery<Group[]>({
+    queryKey: ["/api/groups"],
+    enabled: !!user
   });
 
   // Fetch messages based on active chat type
   const { data: messages = [], isLoading: messagesLoading } = useQuery<ChatMessage[]>({
-    queryKey: ["messages", courseId, activeChat, selectedParticipant?.id, user?.id],
+    queryKey: ["messages", courseId, activeChat, selectedParticipant?.id, selectedGroup?.id],
     queryFn: async () => {
+      let url = "";
       if (activeChat === "course") {
-        // Fetch course messages
-        const response = await fetch(`/api/messages/course/${courseId}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch course messages");
-        }
-        const messages = await response.json();
-        // Return only the last 50 messages for performance
-        return messages.slice(-50);
-      } else if (activeChat === "private" && selectedParticipant && user) {
-        // Fetch private messages between current user and selected participant
-        const response = await fetch(`/api/messages/between/${user.id}/${selectedParticipant.id}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch private messages");
-        }
-        const messages = await response.json();
-        // Return only the last 50 messages for performance
-        return messages.slice(-50);
+        url = `/api/messages/course/${courseId}`;
+      } else if (activeChat === "private" && selectedParticipant) {
+        url = `/api/messages/direct/${selectedParticipant.id}`;
+      } else if (activeChat === "group" && selectedGroup) {
+        url = `/api/messages/group/${selectedGroup.id}`;
       }
-      return [];
+      
+      if (!url) return [];
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Failed to fetch messages");
+      const data = await response.json();
+      return data; // Return all messages, assuming pagination handles it or limits it
     },
-    enabled: !!courseId && !!user && (activeChat === "course" || (activeChat === "private" && !!selectedParticipant)),
-    staleTime: 30 * 1000, // 30 seconds
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    enabled: !!courseId && !!user && (activeChat === "course" || (activeChat === "private" && !!selectedParticipant) || (activeChat === "group" && !!selectedGroup)),
+    refetchInterval: 5000, // Poll every 5 seconds as backup
   });
 
   // Initialize Socket.IO connection
@@ -199,308 +194,252 @@ export default function WhatsAppCourseChat() {
 
     const initSocket = async () => {
       try {
-        // Connect to Socket.IO server
         await SocketClient.connect();
+        socketRef.current = SocketClient;
         
-        // Register user with the Socket.IO server
+        // Register user
         SocketClient.emit('message', {
           type: 'REGISTER_USER',
           userId: user.id,
           courseId: courseId
         });
 
-        // Listen for new messages
-        receiveMessageListener.current = (message: ChatMessage) => {
-          // Add new message to the query cache
-          queryClient.setQueryData<ChatMessage[]>(
-            ["messages", courseId, "course", undefined, user?.id], 
-            (oldMessages = []) => {
-              // Check if message already exists to avoid duplicates
-              if (!oldMessages.some(msg => msg.id === message.id)) {
-                return [...oldMessages, message];
-              }
-              return oldMessages;
-            }
-          );
-          
-          // Scroll to bottom if we're in the course chat
-          if (activeChat === "course") {
-            scrollToBottom();
+        // Listeners
+        const onReceiveMessage = (message: ChatMessage) => {
+          queryClient.invalidateQueries({ queryKey: ["messages"] });
+          scrollToBottom();
+        };
+        const onTypingStatus = (data: { userId: string, isTyping: boolean }) => {
+          if (data.userId !== user.id) {
+            setTypingUser(data.isTyping ? data.userId : null);
           }
         };
-        SocketClient.on('receive_message', receiveMessageListener.current);
+        const onCallInvite = (data: any) => handleIncomingCall(data);
 
-        // Listen for message sent confirmation
-        messageSentListener.current = (message: ChatMessage) => {
-          // Add sent message to the query cache
-          queryClient.setQueryData<ChatMessage[]>(
-            ["messages", courseId, "course", undefined, user?.id], 
-            (oldMessages = []) => {
-              // Check if message already exists to avoid duplicates
-              if (!oldMessages.some(msg => msg.id === message.id)) {
-                return [...oldMessages, message];
-              }
-              return oldMessages;
-            }
-          );
-          
-          // Clear input
-          setNewMessage("");
-          
-          // Scroll to bottom if we're in the course chat
-          if (activeChat === "course") {
-            scrollToBottom();
-          }
-        };
-        SocketClient.on('message_sent', messageSentListener.current);
+        SocketClient.on('receive_message', onReceiveMessage);
+        SocketClient.on('typing_status', onTypingStatus);
+        SocketClient.on('CALL_INVITE', onCallInvite);
+        SocketClient.on('CALL_ACCEPTED', () => { setIsCalling(false); setIsCallModalOpen(true); });
+        SocketClient.on('CALL_DECLINED', () => { setIsCalling(false); setCallError("Call declined"); });
+        SocketClient.on('CALL_ENDED', () => { setIsCallModalOpen(false); setIsCalling(false); });
 
-        // Listen for private messages
-        receivePrivateMessageListener.current = (message: ChatMessage) => {
-          // Only process if we're in a private chat with the sender
-          if (activeChat === "private" && selectedParticipant && 
-              (message.senderId === selectedParticipant.id || message.senderId === user?.id)) {
-            // Add new private message to the query cache
-            queryClient.setQueryData<ChatMessage[]>(
-              ["messages", courseId, "private", selectedParticipant.id, user?.id], 
-              (oldMessages = []) => {
-                // Check if message already exists to avoid duplicates
-                if (!oldMessages.some(msg => msg.id === message.id)) {
-                  return [...oldMessages, message];
-                }
-                return oldMessages;
-              }
-            );
-            
-            // Scroll to bottom
-            scrollToBottom();
-          }
-        };
-        SocketClient.on('receive_private_message', receivePrivateMessageListener.current);
-
-        // Listen for private message sent confirmation
-        privateMessageSentListener.current = (message: ChatMessage) => {
-          // Only process if we're in a private chat with the receiver
-          if (activeChat === "private" && selectedParticipant && 
-              message.senderId === user?.id && message.receiverId === selectedParticipant.id) {
-            // Add sent private message to the query cache
-            queryClient.setQueryData<ChatMessage[]>(
-              ["messages", courseId, "private", selectedParticipant.id, user?.id], 
-              (oldMessages = []) => {
-                // Check if message already exists to avoid duplicates
-                if (!oldMessages.some(msg => msg.id === message.id)) {
-                  return [...oldMessages, message];
-                }
-                return oldMessages;
-              }
-            );
-            
-            // Clear input
-            setNewMessage("");
-            
-            // Scroll to bottom
-            scrollToBottom();
-          }
-        };
-        SocketClient.on('private_message_sent', privateMessageSentListener.current);
-
-        // Listen for call invitations
-        callInviteListener.current = (data: any) => {
-          handleIncomingCall(data);
-        };
-        SocketClient.on('CALL_INVITE', callInviteListener.current);
-
-        // Listen for call acceptance
-        callAcceptListener.current = (data: any) => {
-          handleCallAccepted(data);
-        };
-        SocketClient.on('CALL_ACCEPTED', callAcceptListener.current);
-
-        // Listen for call decline
-        callDeclineListener.current = (data: any) => {
-          handleCallDeclined(data);
-        };
-        SocketClient.on('CALL_DECLINED', callDeclineListener.current);
-
-        // Listen for call ended
-        callEndListener.current = () => {
-          handleCallEnded();
-        };
-        SocketClient.on('CALL_ENDED', callEndListener.current);
-
-        // Listen for errors
-        errorListener.current = (error: { message: string }) => {
-          console.error("Socket.IO error:", error.message);
-        };
-        SocketClient.on('error', errorListener.current);
-
+        (socketRef as any).currentListeners = { onReceiveMessage, onTypingStatus, onCallInvite };
       } catch (error) {
-        console.error("Failed to connect to Socket.IO:", error);
+        console.error("Socket error:", error);
       }
     };
 
     initSocket();
 
-    // Clean up Socket.IO connection on unmount
     return () => {
-      if (receiveMessageListener.current) SocketClient.off('receive_message', receiveMessageListener.current);
-      if (messageSentListener.current) SocketClient.off('message_sent', messageSentListener.current);
-      if (receivePrivateMessageListener.current) SocketClient.off('receive_private_message', receivePrivateMessageListener.current);
-      if (privateMessageSentListener.current) SocketClient.off('private_message_sent', privateMessageSentListener.current);
-      if (callInviteListener.current) SocketClient.off('CALL_INVITE', callInviteListener.current);
-      if (callAcceptListener.current) SocketClient.off('CALL_ACCEPTED', callAcceptListener.current);
-      if (callDeclineListener.current) SocketClient.off('CALL_DECLINED', callDeclineListener.current);
-      if (callEndListener.current) SocketClient.off('CALL_ENDED', callEndListener.current);
-      if (errorListener.current) SocketClient.off('error', errorListener.current);
+      if (socketRef.current) {
+        const listeners = (socketRef as any).currentListeners;
+        if (listeners) {
+          socketRef.current.off('receive_message', listeners.onReceiveMessage);
+          socketRef.current.off('typing_status', listeners.onTypingStatus);
+          socketRef.current.off('CALL_INVITE', listeners.onCallInvite);
+        }
+      }
     };
-  }, [user, courseId, queryClient, activeChat, selectedParticipant]);
+  }, [user, courseId, queryClient]);
 
-  // Scroll to bottom of messages
+  // Scroll to bottom
   const scrollToBottom = () => {
     setTimeout(() => {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-      }
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, 100);
   };
 
-  // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, activeChat]);
 
-  // Filter participants based on search term
-  const filteredParticipants = participants 
-    ? [...(participants.teacher ? [participants.teacher] : []), ...participants.students]
-        .filter(participant => 
-          participant.name.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-    : [];
+  // Typing indicator logic
+  const handleTyping = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setNewMessage(e.target.value);
+    
+    if (!isTyping) {
+      setIsTyping(true);
+      emitTypingStatus(true);
+    }
 
-  // Function to start a private chat with a participant
-  const startPrivateChat = (participant: Participant) => {
-    setActiveChat("private");
-    setSelectedParticipant(participant);
-    setSearchTerm(""); // Clear search term
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+    typingTimeoutRef.current = setTimeout(() => {
+      setIsTyping(false);
+      emitTypingStatus(false);
+    }, 2000);
   };
 
-  // Function to go back to course chat
-  const goToCourseChat = () => {
-    setActiveChat("course");
-    setSelectedParticipant(null);
-  };
+  const emitTypingStatus = (isTyping: boolean) => {
+    if (!socketRef.current || !user) return;
 
-  const getInitials = (name: string | undefined | null) => {
-    if (!name) return "??";
-    return name
-      .split(" ")
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
+    const payload: any = {
+      type: 'TYPING',
+      senderId: user.id,
+      isTyping
+    };
+
+    if (activeChat === 'group' && selectedGroup) {
+      payload.groupId = selectedGroup.id;
+    } else if (activeChat === 'private' && selectedParticipant) {
+      payload.receiverId = selectedParticipant.id;
+    } else {
+      payload.courseId = courseId;
+    }
+
+    socketRef.current.emit('message', payload);
   };
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim() || !user || !courseId) return;
+    if (!newMessage.trim() && !fileInputRef.current?.files?.length) return;
+    if (!user || !courseId) return;
 
     try {
+      const messagePayload: any = {
+        type: 'send_message',
+        senderId: user.id,
+        content: newMessage,
+        senderName: user.name
+      };
+
       if (activeChat === "course") {
-        // Send group message through Socket.IO
-        SocketClient.emit('message', {
-          type: 'send_message',
-          senderId: user.id,
-          courseId: courseId,
-          content: newMessage,
-          senderName: user.name
-        });
+        messagePayload.courseId = courseId;
       } else if (activeChat === "private" && selectedParticipant) {
-        // Send private message through Socket.IO
-        SocketClient.emit('message', {
-          type: 'send_private_message',
-          senderId: user.id,
-          receiverId: selectedParticipant.id,
-          content: newMessage,
-          senderName: user.name
-        });
+        messagePayload.receiverId = selectedParticipant.id;
+      } else if (activeChat === "group" && selectedGroup) {
+        messagePayload.groupId = selectedGroup.id;
       }
+
+      SocketClient.emit('message', messagePayload);
+      setNewMessage("");
+      setIsTyping(false);
+      emitTypingStatus(false);
     } catch (error) {
       console.error("Error sending message:", error);
     }
   };
 
-  const handleIncomingCall = (data: any) => {
-    setIncomingCall({
-      callerId: data.callerId,
-      callType: data.callType
-    });
-    setIsCallModalOpen(true);
-  };
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleCallAccepted = (data: any) => {
-    setIsCalling(false);
-    setIsCallModalOpen(true);
-  };
+    const formData = new FormData();
+    formData.append('file', file);
 
-  const handleCallDeclined = (data: any) => {
-    setIsCalling(false);
-    setCallError("Call was declined");
-    setTimeout(() => setCallError(null), 3000);
-  };
+    try {
+      const res = await fetch('/api/chat/upload', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (!res.ok) throw new Error("Upload failed");
+      
+      const data = await res.json();
+      
+      // Send message with file info
+      const messagePayload: any = {
+        type: 'send_message',
+        senderId: user?.id,
+        content: file.name,
+        senderName: user?.name,
+        fileUrl: data.url,
+        fileName: data.fileName,
+        fileType: data.fileType,
+        fileSize: data.fileSize
+      };
 
-  const handleCallEnded = () => {
-    setIsCallModalOpen(false);
-    setIsCalling(false);
-  };
-
-  const startCall = async (type: 'voice' | 'video') => {
-    if (!selectedParticipant) return;
-    
-    setCallType(type);
-    setIsCalling(true);
-    
-    // Send call invite through Socket.IO
-    SocketClient.emit('message', {
-      type: 'CALL_INVITE',
-      callerId: user?.id,
-      calleeId: selectedParticipant.id,
-      callType: type,
-      callerName: user?.name
-    });
-    
-    // Send notification
-    SocketClient.emit('message', {
-      type: 'NEW_NOTIFICATION',
-      notification: {
-        type: 'call_invite',
-        title: `${type === 'video' ? 'Video' : 'Voice'} Call`,
-        message: `Incoming call from ${user?.name}`,
-        callerId: user?.id,
-        calleeId: selectedParticipant.id,
-        callType: type
+      if (activeChat === "course") {
+        messagePayload.courseId = courseId;
+      } else if (activeChat === "private" && selectedParticipant) {
+        messagePayload.receiverId = selectedParticipant.id;
+      } else if (activeChat === "group" && selectedGroup) {
+        messagePayload.groupId = selectedGroup.id;
       }
-    });
+
+      SocketClient.emit('message', messagePayload);
+      setShowAttachmentMenu(false);
+    } catch (error) {
+      console.error("File upload error:", error);
+    }
   };
+
+  // Helper to render message content (detect file links)
+  const renderMessageContent = (message: ChatMessage) => {
+    // Handle file attachments with new schema fields
+    if (message.fileUrl) {
+      const isImage = message.fileType?.startsWith('image/') || message.fileName?.match(/\.(jpeg|jpg|gif|png)$/i);
+      return (
+        <div className="flex flex-col gap-2">
+          {isImage ? (
+             <img src={message.fileUrl} alt={message.fileName} className="max-w-[200px] rounded-lg border cursor-pointer" onClick={() => window.open(message.fileUrl, '_blank')} />
+          ) : (
+             <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+               <FileText className="h-4 w-4" />
+               <a href={message.fileUrl} target="_blank" rel="noopener noreferrer" className="underline text-blue-500 truncate max-w-[150px]">{message.fileName}</a>
+             </div>
+          )}
+          {message.content && message.content !== message.fileName && (
+             <p className="text-sm mt-1">{message.content}</p>
+          )}
+        </div>
+      );
+    }
+
+    // Backward compatibility for existing messages using [FILE] format
+    if (message.content.startsWith("[FILE]")) {
+      const match = message.content.match(/\[FILE\](.*)\|(.*)\[\/FILE\]/);
+      if (match) {
+        const [_, url, name] = match;
+        const isImage = url.match(/\.(jpeg|jpg|gif|png)$/i);
+        return (
+          <div className="flex flex-col gap-2">
+            {isImage ? (
+               <img src={url} alt={name} className="max-w-[200px] rounded-lg border" />
+            ) : (
+               <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                 <FileText className="h-4 w-4" />
+                 <a href={url} target="_blank" rel="noopener noreferrer" className="underline text-blue-500 truncate max-w-[150px]">{name}</a>
+               </div>
+            )}
+          </div>
+        );
+      }
+    }
+    return <p className="text-sm">{message.content}</p>;
+  };
+
+  const handleIncomingCall = (data: any) => {
+    setIncomingCall({ callerId: data.callerId, callType: data.callType });
+    setIsCallModalOpen(true);
+  };
+
+  const filteredParticipants = participants 
+    ? [...(participants.teacher ? [participants.teacher] : []), ...participants.students]
+        .filter(participant => participant.name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : [];
+
+  const getInitials = (name: string) => name.substring(0, 2).toUpperCase();
 
   return (
-    <div className="flex h-full bg-background">
+    <div className="flex h-full bg-background overflow-hidden">
       {/* Sidebar */}
-      <div className="w-1/3 border-r flex flex-col">
+      <div className="w-80 border-r flex flex-col bg-card">
         {/* Header */}
-        <div className="p-4 border-b">
+        <div className="p-4 border-b bg-muted/30">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-xl font-semibold">Chat</h1>
+            <h1 className="text-xl font-bold">Chat</h1>
             <div className="flex items-center gap-2">
               <NotificationBell />
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="h-5 w-5" />
-              </Button>
+              {user?.role === 'teacher' && <CreateGroupModal />}
             </div>
           </div>
           
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
-              placeholder="Search or start new chat"
-              className="pl-10"
+              placeholder="Search..."
+              className="pl-10 bg-background"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -509,281 +448,257 @@ export default function WhatsAppCourseChat() {
         
         {/* Chat list */}
         <ScrollArea className="flex-1">
-          {participantsLoading ? (
-            <div className="space-y-2 p-2">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex items-center gap-3 p-3">
-                  <Skeleton className="h-12 w-12 rounded-full" />
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-3 w-32" />
-                  </div>
-                </div>
-              ))}
+          <div className="p-2 space-y-1">
+            {/* Course Chat */}
+            <div 
+              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                activeChat === "course" ? "bg-accent text-accent-foreground" : "hover:bg-muted"
+              }`}
+              onClick={() => { setActiveChat("course"); setSelectedParticipant(null); setSelectedGroup(null); }}
+            >
+              <Avatar className="h-10 w-10">
+                <AvatarFallback className="bg-primary/10 text-primary">
+                  <MessageCircle className="h-5 w-5" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="font-medium">Course Chat</div>
+                <div className="text-xs text-muted-foreground truncate">General discussion</div>
+              </div>
             </div>
-          ) : (
-            <>
-              {/* Course chat */}
-              <div 
-                className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-muted ${
-                  activeChat === "course" ? "bg-muted" : ""
+
+            {/* Groups */}
+            <div className="pt-2 pb-1 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Groups
+            </div>
+            {groups.map((group) => (
+              <div
+                key={group.id}
+                className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                  activeChat === "group" && selectedGroup?.id === group.id
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-muted"
                 }`}
-                onClick={goToCourseChat}
+                onClick={() => {
+                  setActiveChat("group");
+                  setSelectedGroup(group);
+                  setSelectedParticipant(null);
+                }}
               >
-                <Avatar>
-                  <AvatarFallback>
-                    <MessageCircle className="h-6 w-6" />
+                <Avatar className="h-10 w-10">
+                  <AvatarFallback className="bg-primary/10 text-primary">
+                    <Users className="h-5 w-5" />
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium">Course Chat</div>
-                  <div className="text-sm text-muted-foreground truncate">
-                    Group discussion
+                  <div className="font-medium truncate">{group.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    Group
                   </div>
                 </div>
               </div>
-              
-              {/* Private chats */}
-              {filteredParticipants.map((participant) => (
-                <div 
-                  key={participant.id}
-                  className={`flex items-center gap-3 p-3 cursor-pointer hover:bg-muted ${
-                    activeChat === "private" && selectedParticipant?.id === participant.id ? "bg-muted" : ""
-                  }`}
-                  onClick={() => startPrivateChat(participant)}
-                >
-                  <Avatar>
-                    <AvatarFallback>{getInitials(participant.name)}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium">{participant.name}</div>
-                    <div className="text-sm text-muted-foreground truncate">
-                      {participant.role}
-                    </div>
-                  </div>
-                  {participant.isOnline && (
-                    <div className="h-2 w-2 rounded-full bg-green-500"></div>
+            ))}
+
+            {/* Direct Messages */}
+            <div className="pt-2 pb-1 px-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Direct Messages
+            </div>
+            {filteredParticipants.map((participant) => (
+              <div
+                key={participant.id}
+                className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                  activeChat === "private" && selectedParticipant?.id === participant.id
+                    ? "bg-accent text-accent-foreground"
+                    : "hover:bg-muted"
+                }`}
+                onClick={() => {
+                  setActiveChat("private");
+                  setSelectedParticipant(participant);
+                  setSelectedGroup(null);
+                }}
+              >
+                <Avatar className="h-10 w-10">
+                  {participant.profileImage ? (
+                    <AvatarImage src={participant.profileImage} />
+                  ) : (
+                    <AvatarFallback>
+                      {getInitials(participant.name)}
+                    </AvatarFallback>
                   )}
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate flex items-center gap-2">
+                    {participant.name}
+                    {participant.role === "teacher" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                        Teacher
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <span className={`h-2 w-2 rounded-full ${participant.isOnline ? "bg-green-500" : "bg-gray-300"}`} />
+                    {participant.isOnline ? "Online" : "Offline"}
+                  </div>
                 </div>
-              ))}
-            </>
-          )}
+              </div>
+            ))}
+          </div>
         </ScrollArea>
       </div>
       
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col">
-        {/* Chat header */}
-        <div className="p-4 border-b flex items-center justify-between">
-          {activeChat === "course" ? (
-            <>
-              <div className="flex items-center gap-3">
-                <Avatar>
-                  <AvatarFallback>
-                    <MessageCircle className="h-6 w-6" />
-                  </AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-semibold">Course Chat</div>
-                  <div className="text-sm text-muted-foreground">
-                    {participants?.students.length || 0} participants
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : selectedParticipant ? (
-            <>
-              <div className="flex items-center gap-3">
-                <Avatar>
-                  <AvatarFallback>{getInitials(selectedParticipant.name)}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <div className="font-semibold">{selectedParticipant.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {selectedParticipant.role}
-                    {selectedParticipant.isOnline && (
-                      <span className="ml-2 text-green-500">● Online</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <div>Select a chat</div>
-          )}
+      <div className="flex-1 flex flex-col min-w-0 bg-[#f0f2f5] dark:bg-zinc-900">
+        {/* Chat Header */}
+        <div className="h-16 border-b bg-background flex items-center px-4 justify-between shadow-sm z-10">
+          <div className="flex items-center gap-3">
+            <Avatar>
+              <AvatarFallback>
+                {activeChat === "course" ? <MessageCircle /> : 
+                 activeChat === "group" ? <Users /> : 
+                 getInitials(selectedParticipant?.name || "?")}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h2 className="font-semibold">
+                {activeChat === "course" ? "Course Chat" : 
+                 activeChat === "group" ? selectedGroup?.name : 
+                 selectedParticipant?.name}
+              </h2>
+              {typingUser && (
+                <p className="text-xs text-green-600 font-medium animate-pulse">Typing...</p>
+              )}
+            </div>
+          </div>
           
-          {activeChat === "private" && selectedParticipant && (
-            <div className="flex items-center gap-2">
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => startCall('voice')}
-              >
-                <Phone className="h-5 w-5" />
-              </Button>
-              <Button 
-                variant="ghost" 
-                size="icon"
-                onClick={() => startCall('video')}
-              >
-                <Video className="h-5 w-5" />
-              </Button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {activeChat === "private" && (
+              <>
+                <Button variant="ghost" size="icon" onClick={() => startAudioCall()}>
+                  <Phone className="h-5 w-5" />
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => startVideoCall()}>
+                  <Video className="h-5 w-5" />
+                </Button>
+              </>
+            )}
+            <Button variant="ghost" size="icon">
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
-        
+
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
-          {messagesLoading ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="flex items-end gap-2">
-                  <Skeleton className="h-8 w-8 rounded-full" />
-                  <div className="space-y-2">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-3 w-48" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div 
-                  key={message.id} 
-                  className={`flex items-end gap-2 ${
-                    message.senderId === user?.id ? "justify-end" : ""
-                  }`}
-                >
-                  {message.senderId !== user?.id && (
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>{getInitials(message.senderName)}</AvatarFallback>
-                    </Avatar>
-                  )}
-                  <div 
-                    className={`max-w-xs lg:max-w-md px-4 py-2 rounded-2xl ${
-                      message.senderId === user?.id 
-                        ? "bg-primary text-primary-foreground rounded-br-sm" 
-                        : "bg-muted rounded-bl-sm"
-                    }`}
+        <div className="flex-1 overflow-hidden relative">
+          <div className="absolute inset-0 bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] opacity-5 pointer-events-none"></div>
+          <ScrollArea className="h-full p-4">
+            <div className="space-y-4 max-w-3xl mx-auto pb-4">
+              {messages.map((message) => {
+                const isMe = message.senderId === user?.id;
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex ${isMe ? "justify-end" : "justify-start"}`}
                   >
-                    {message.senderId !== user?.id && (
-                      <div className="text-xs font-medium mb-1">{message.senderName}</div>
-                    )}
-                    <div>{message.content}</div>
-                    <div 
-                      className={`text-xs mt-1 ${
-                        message.senderId === user?.id ? "text-primary-foreground/70" : "text-muted-foreground"
+                    <div
+                      className={`max-w-[70%] rounded-lg px-4 py-2 shadow-sm ${
+                        isMe
+                          ? "bg-primary text-primary-foreground rounded-tr-none"
+                          : "bg-background rounded-tl-none"
                       }`}
                     >
-                      {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {!isMe && (
+                        <div className="text-xs font-bold opacity-70 mb-1">
+                          {message.senderName}
+                        </div>
+                      )}
+                      <div className="break-words">
+                        {renderMessageContent(message)}
+                      </div>
+                      <div className={`text-[10px] mt-1 text-right ${isMe ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                        {format(new Date(message.timestamp), "h:mm a")}
+                      </div>
                     </div>
                   </div>
-                  {message.senderId === user?.id && (
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
-                    </Avatar>
-                  )}
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
-          )}
-        </ScrollArea>
-        
-        {/* Message input */}
-        <div className="p-4 border-t">
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-            >
-              <Paperclip className="h-5 w-5" />
-            </Button>
+          </ScrollArea>
+        </div>
+
+        {/* Input Area */}
+        <div className="p-3 bg-background border-t">
+          <form 
+            className="max-w-3xl mx-auto flex items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSendMessage();
+            }}
+          >
+             <DropdownMenu open={showAttachmentMenu} onOpenChange={setShowAttachmentMenu}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground">
+                  <Paperclip className="h-5 w-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Photos & Videos
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Document
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             
-            <div className="flex-1 relative">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              onChange={handleFileUpload} 
+              accept="image/*,.pdf,.doc,.docx"
+            />
+
+            <div className="flex-1 bg-muted rounded-2xl flex items-center px-4 py-2 min-h-[44px]">
               <Input
-                placeholder="Type a message"
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={handleTyping}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
                     handleSendMessage();
                   }
                 }}
+                placeholder="Type a message..."
+                className="border-none bg-transparent shadow-none focus-visible:ring-0 p-0 h-auto max-h-32 min-h-[24px]"
               />
-              <Button 
-                variant="ghost" 
-                size="icon"
-                className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-              >
-                <Smile className="h-5 w-5" />
-              </Button>
             </div>
-            
-            {newMessage.trim() ? (
-              <Button size="icon" onClick={handleSendMessage}>
-                <Send className="h-5 w-5" />
-              </Button>
-            ) : isRecording ? (
-              <Button 
-                size="icon" 
-                variant="destructive"
-                onClick={() => setIsRecording(false)}
-              >
-                <MicOff className="h-5 w-5" />
-              </Button>
-            ) : (
-              <Button 
-                size="icon" 
-                variant="ghost"
-                onClick={() => setIsRecording(true)}
-              >
-                <Mic className="h-5 w-5" />
-              </Button>
-            )}
-          </div>
+
+            <Button 
+              type="submit"
+              disabled={!newMessage.trim() && !fileInputRef.current?.files?.length}
+              size="icon"
+              className="shrink-0 rounded-full h-11 w-11"
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </form>
         </div>
       </div>
-      
-      {/* Video Call Modal */}
-      {isCallModalOpen && selectedParticipant && (
-        <VideoCallModal
+
+      {/* Call Modals */}
+      {isCallModalOpen && (
+        <CallModal
           isOpen={isCallModalOpen}
           onClose={() => {
             setIsCallModalOpen(false);
             setIsCalling(false);
-          }}
-          callerName={selectedParticipant?.name || "Unknown"}
-          callType={callType || 'video'}
-          calleeId={selectedParticipant.id}
-          onCallEnd={() => {
-            // Handle call end
-            setIsCallModalOpen(false);
-            setIsCalling(false);
-          }}
-          isCaller={true}
-          callerId={user?.id || ""}
-        />
-      )}
-      
-      {/* Call Modal for active calls */}
-      {isCallActive && webRTCCallType && (
-        <CallModal
-          isOpen={isCallActive}
-          onClose={() => {
             endCall();
-            // Notify others that call has ended
-            SocketClient.emit('message', {
-              type: 'CALL_ENDED',
-              userId: user?.id
-            });
           }}
-          callType={webRTCCallType}
-          participants={Object.keys(peers).map(socketId => ({ socketId, userName: 'Participant' }))}
+          callType={(callType === 'voice' ? 'audio' : callType === 'video' ? 'video' : 'audio')}
+          participants={Object.values(peers)}
           localStream={localStream}
           isAudioEnabled={isAudioEnabled}
           isVideoEnabled={isVideoEnabled}
@@ -791,20 +706,10 @@ export default function WhatsAppCourseChat() {
           onToggleVideo={toggleVideo}
           onEndCall={() => {
             endCall();
-            // Notify others that call has ended
-            SocketClient.emit('message', {
-              type: 'CALL_ENDED',
-              userId: user?.id
-            });
+            setIsCalling(false);
+            setIsCallModalOpen(false);
           }}
         />
-      )}
-      
-      {/* Call error message */}
-      {callError && (
-        <div className="fixed bottom-4 right-4 bg-destructive text-destructive-foreground px-4 py-2 rounded-lg shadow-lg">
-          {callError}
-        </div>
       )}
     </div>
   );

@@ -11,9 +11,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth-context";
 import { Link, useLocation } from "wouter";
 import type { User } from "@shared/schema";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, GraduationCap, Apple, Chrome } from "lucide-react";
 import { useState } from "react";
-import { GraduationCap } from "lucide-react";
 
 // Define the LoginCredentials type based on the loginSchema
 type LoginCredentials = z.infer<typeof loginSchema>;
@@ -36,11 +35,9 @@ export default function Login() {
 
   const loginMutation = useMutation({
     mutationFn: async (data: LoginCredentials) => {
-      console.log("Attempting login with data:", data);
       try {
         // Ensure we're using the correct URL format
         const result = await apiRequest<User>("POST", "/api/auth/login", data);
-        console.log("Login successful, result:", result);
         return result;
       } catch (error) {
         console.error("Login error:", error);
@@ -48,7 +45,6 @@ export default function Login() {
       }
     },
     onSuccess: (user) => {
-      console.log("Login mutation success, user:", user);
       // Also update localStorage to ensure consistency
       localStorage.setItem("user", JSON.stringify(user));
       setUser(user);

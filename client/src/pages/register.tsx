@@ -214,6 +214,7 @@ export default function Register() {
             <Button
               variant="outline"
               className="h-11 md:h-12 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              onClick={() => toast({ title: "Coming soon", description: "Apple login will be available soon" })}
             >
               <Apple className="h-5 w-5 mr-2" />
               Apple
@@ -221,6 +222,7 @@ export default function Register() {
             <Button
               variant="outline"
               className="h-11 md:h-12 rounded-lg border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+              onClick={() => toast({ title: "Coming soon", description: "Google login will be available soon" })}
             >
               <Chrome className="h-5 w-5 mr-2" />
               Google

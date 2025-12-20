@@ -216,13 +216,29 @@ export default function Profile() {
     }
     
     try {
-      // Prepare form data for file upload
+      // 1. Upload profile image if selected
+      if (selectedFile) {
+        const imageFormData = new FormData();
+        imageFormData.append("image", selectedFile);
+        
+        const imageResponse = await fetch("/api/users/profile-image", {
+          method: "POST",
+          body: imageFormData,
+        });
+
+        if (!imageResponse.ok) {
+          throw new Error("Failed to upload profile image");
+        }
+        
+        // Update user context with new image immediately
+        const updatedUserWithImage = await imageResponse.json();
+        setUser(updatedUserWithImage);
+      }
+
+      // 2. Update other profile details
       const formData = new FormData();
       formData.append("name", name);
-      
-      if (selectedFile) {
-        formData.append("profileImage", selectedFile);
-      }
+      // We don't send profileImage here anymore as it's handled above
       
       const response = await fetch("/api/auth/profile", {
         method: "PUT",
@@ -230,7 +246,7 @@ export default function Profile() {
       });
       
       if (!response.ok) {
-        throw new Error("Failed to update profile");
+        throw new Error("Failed to update profile details");
       }
       
       const updatedUser = await response.json();
